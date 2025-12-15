@@ -2,6 +2,7 @@ package toml
 
 import "base:runtime"
 import "core:fmt"
+import "core:mem"
 
 ErrorType :: enum {
     None,
@@ -48,7 +49,7 @@ delete_error :: proc(err: ^Error) {
 }
 
 // This may also be a warning!
-print_error :: proc(err: Error, allocator := context.allocator) -> (fatal: bool) {
+print_error :: proc(err: Error, allocator: mem.Allocator) -> (fatal: bool) {
     err := err
     message: string
     message, fatal = format_error(&err, allocator)
@@ -60,7 +61,7 @@ print_error :: proc(err: Error, allocator := context.allocator) -> (fatal: bool)
 }
 
 // The message is allocated and should be freed after use.
-format_error :: proc(err: ^Error, allocator := context.allocator) -> (message: string, fatal: bool) {
+format_error :: proc(err: ^Error, allocator: mem.Allocator) -> (message: string, fatal: bool) {
     if err.type == .None do return "", false
 
     descriptions : [ErrorType] string = {
@@ -97,7 +98,7 @@ format_error :: proc(err: ^Error, allocator := context.allocator) -> (message: s
 // that's why this is not inside of the peek() procedure.
 skip_newline :: proc() -> (ok: bool) { ok = peek() == "\n"; for peek() == "\n" { g.err.line += 1; skip() }; return }
 
-validate :: proc(raw_tokens: [] string, file: string, allocator := context.allocator) -> Error {
+validate :: proc(raw_tokens: [] string, file: string, allocator: mem.Allocator) -> Error {
 
     initial_data: GlobalData = {
         toks = raw_tokens,
@@ -467,7 +468,7 @@ validate_inline_table :: proc() -> bool { //{{{
 @(private="file")
 make_err :: proc(type: ErrorType, more_fmt: string, more_args: ..any) {
     g.err.type = type
-    context.allocator = g.aloc
+    // context.allocator = g.aloc
     b_reset(&g.err.more)
     b_printf(&g.err.more, more_fmt, ..more_args)
 }

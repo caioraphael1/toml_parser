@@ -65,17 +65,17 @@ Format's and prints the specified error to `stdout`. May use `format_error` to o
 ## Parsing
 
 ```odin  
-parse_file :: proc(filename: string, allocator := context.allocator) -> (section: ^Table, err: Error) 
+parse_file :: proc(filename: string, allocator: mem.Allocator) -> (section: ^Table, err: Error) 
 ```
 Parses the specified toml file. Returns the root table & an error, which can then be nicely printed with `print_error`.
 
 ```odin  
-parse_data :: proc(data: []u8, original_filename := "untitled data", allocator := context.allocator) -> (section: ^Table, err: Error)  
+parse_data :: proc(data: []u8, original_filename := "untitled data", allocator: mem.Allocator) -> (section: ^Table, err: Error)  
 ```
 Parses the given data. Is meant to be used with `#load(file)`. 
  
 ```odin  
-parse :: proc(data: string, original_file: string, allocator := context.allocator) -> (tokens: ^Table, err: Error) 
+parse :: proc(data: string, original_file: string, allocator: mem.Allocator) -> (tokens: ^Table, err: Error) 
 ```
 Parses the TOML in a string. Underlying function called by `parse_data` and `parse_file`.
 
@@ -112,7 +112,7 @@ print_value :: proc(v: Type, level := 0)
 ## Freeing memory
 
 ```odin
-deep_delete :: proc(type: Type, allocator := context.allocator) -> (err: runtime.Allocator_Error)
+deep_delete :: proc(type: Type, allocator: mem.Allocator) -> (err: runtime.Allocator_Error)
 ```
 Recursively frees parser's output
 

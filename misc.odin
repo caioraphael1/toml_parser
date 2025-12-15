@@ -1,6 +1,7 @@
 package toml
 
 import "core:fmt"
+import "core:mem"
 import "core:strings"
 import "core:strconv"
 import "core:unicode/utf8"
@@ -15,7 +16,7 @@ find_newline :: proc(raw: string) -> (bytes: int, runes: int) {
 }
 
 @private
-shorten_string :: proc(s: string, limit: int, or_newline := true) -> string {
+shorten_string :: proc(s: string, limit: int, or_newline := true, allocator: mem.Allocator) -> string {
     min :: proc(a, b: int) -> int {
         return a if a < b else b
     }
@@ -24,7 +25,7 @@ shorten_string :: proc(s: string, limit: int, or_newline := true) -> string {
     if newline == -1 do newline = len(s)
 
     if limit < len(s) || newline < len(s) {
-        return fmt.aprint(s[:min(limit, newline)], "...")
+        return fmt.aprint({ s[:min(limit, newline)], "..." }, allocator = allocator)
     }
 
     return s
@@ -32,8 +33,8 @@ shorten_string :: proc(s: string, limit: int, or_newline := true) -> string {
 
 // when literal is true, function JUST returns str
 @private
-cleanup_backslashes :: proc(str: string, literal := false) -> (result: string, err: Error) {
-    str := strings.clone(str)
+cleanup_backslashes :: proc(str: string, literal := false, allocator: mem.Allocator) -> (result: string, err: Error) {
+    str := strings.clone(str, allocator)
     if literal do return str, err
 
     set_err :: proc(err: ^Error, type: ErrorType, more_fmt: string, more_args: ..any) {
@@ -43,6 +44,7 @@ cleanup_backslashes :: proc(str: string, literal := false) -> (result: string, e
 
     using strings
     b: Builder
+    b.buf.allocator = allocator
     // defer builder_destroy(&b) // don't need to, shouldn't even free the original str here
 
     to_skip := 0
@@ -125,7 +127,7 @@ cleanup_backslashes :: proc(str: string, literal := false) -> (result: string, e
                     else do break
                 }
             case: 
-                set_err(&err, .Bad_Unicode_Char, "Unexpected escape sequence found."); 
+                set_err(&err, .Bad_Unicode_Char, "Unexpected escape sequence found.")
                 return str, err
             }
         } else if r != '\\' {
@@ -136,9 +138,9 @@ cleanup_backslashes :: proc(str: string, literal := false) -> (result: string, e
 
         last = r
     }
-    delete_string(str)
+    delete_string(str, allocator)
     defer b_destroy(&b) // you can't free a builder that has been cast to string
-    return strings.clone(to_string(b)), err
+    return strings.clone(to_string(b), allocator), err
 }
 
 @private
@@ -198,7 +200,7 @@ get_quote_count :: proc(a: string) -> int {
 }
 
 @(private)
-unquote :: proc(a: string, fluff: ..any) -> (result: string, err: Error) {
+unquote :: proc(a: string, fluff: []any, allocator: mem.Allocator) -> (result: string, err: Error) {
     qcount := get_quote_count(a)
 
     if qcount == 3 {
@@ -220,7 +222,7 @@ unquote :: proc(a: string, fluff: ..any) -> (result: string, err: Error) {
 
     unquoted := a[qcount:len(a) - qcount]
     if len(unquoted) > 0 && unquoted[0] == '\n' do unquoted = unquoted[1:]
-    return cleanup_backslashes(unquoted, a[0] == '\'')
+    return cleanup_backslashes(unquoted, a[0] == '\'', allocator)
 }
 
 @(private)
@@ -250,7 +252,7 @@ eq :: proc(a, b: string) -> bool {
 
 @private
 is_list :: proc(t: Type) -> bool { 
-    _, is_list := t.(^List); 
+    _, is_list := t.(^List)
     return is_list
     
 }
@@ -321,68 +323,68 @@ toml_ucs_to_utf8 :: proc(code: u64) -> (buf: [6] u8, byte_count: int) {
     /* 0x00000000 - 0x0000007F:
         0xxxxxxx
     */
-    if (code < 0) do return buf, -1;
+    if (code < 0) do return buf, -1
     if (code <= 0x7F) {
-        buf[0] = u8(code);
-        return buf, 1;
+        buf[0] = u8(code)
+        return buf, 1
     }
 
     /* 0x00000080 - 0x000007FF:
        110xxxxx 10xxxxxx
     */
     if (code <= 0x000007FF) {
-        buf[0] = u8(0xc0 | (code >> 6));
-        buf[1] = u8(0x80 | (code & 0x3f));
-        return buf, 2;
+        buf[0] = u8(0xc0 | (code >> 6))
+        buf[1] = u8(0x80 | (code & 0x3f))
+        return buf, 2
     }
 
     /* 0x00000800 - 0x0000FFFF:
        1110xxxx 10xxxxxx 10xxxxxx
     */
     if (code <= 0x0000FFFF) {
-        buf[0] = u8(0xe0 | (code >> 12));
-        buf[1] = u8(0x80 | ((code >> 6) & 0x3f));
-        buf[2] = u8(0x80 | (code & 0x3f));
-        return buf, 3;
+        buf[0] = u8(0xe0 | (code >> 12))
+        buf[1] = u8(0x80 | ((code >> 6) & 0x3f))
+        buf[2] = u8(0x80 | (code & 0x3f))
+        return buf, 3
     }
 
     /* 0x00010000 - 0x001FFFFF:
        11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
     */
     if (code <= 0x001FFFFF) {
-        buf[0] = u8(0xf0 | (code >> 18));
-        buf[1] = u8(0x80 | ((code >> 12) & 0x3f));
-        buf[2] = u8(0x80 | ((code >> 6) & 0x3f));
-        buf[3] = u8(0x80 | (code & 0x3f));
-        return buf, 4;
+        buf[0] = u8(0xf0 | (code >> 18))
+        buf[1] = u8(0x80 | ((code >> 12) & 0x3f))
+        buf[2] = u8(0x80 | ((code >> 6) & 0x3f))
+        buf[3] = u8(0x80 | (code & 0x3f))
+        return buf, 4
     }
 
     /* 0x00200000 - 0x03FFFFFF:
        111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
      */
     if (code <= 0x03FFFFFF) {
-        buf[0] = u8(0xf8 | (code >> 24));
-        buf[1] = u8(0x80 | ((code >> 18) & 0x3f));
-        buf[2] = u8(0x80 | ((code >> 12) & 0x3f));
-        buf[3] = u8(0x80 | ((code >> 6) & 0x3f));
-        buf[4] = u8(0x80 | (code & 0x3f));
-        return buf, 5;
+        buf[0] = u8(0xf8 | (code >> 24))
+        buf[1] = u8(0x80 | ((code >> 18) & 0x3f))
+        buf[2] = u8(0x80 | ((code >> 12) & 0x3f))
+        buf[3] = u8(0x80 | ((code >> 6) & 0x3f))
+        buf[4] = u8(0x80 | (code & 0x3f))
+        return buf, 5
     }
 
     /* 0x04000000 - 0x7FFFFFFF:
        1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
      */
     if (code <= 0x7FFFFFFF) {
-        buf[0] = u8(0xfc | (code >> 30));
-        buf[1] = u8(0x80 | ((code >> 24) & 0x3f));
-        buf[2] = u8(0x80 | ((code >> 18) & 0x3f));
-        buf[3] = u8(0x80 | ((code >> 12) & 0x3f));
-        buf[4] = u8(0x80 | ((code >> 6) & 0x3f));
-        buf[5] = u8(0x80 | (code & 0x3f));
-        return buf, 6;
+        buf[0] = u8(0xfc | (code >> 30))
+        buf[1] = u8(0x80 | ((code >> 24) & 0x3f))
+        buf[2] = u8(0x80 | ((code >> 18) & 0x3f))
+        buf[3] = u8(0x80 | ((code >> 12) & 0x3f))
+        buf[4] = u8(0x80 | ((code >> 6) & 0x3f))
+        buf[5] = u8(0x80 | (code & 0x3f))
+        return buf, 6
     }
 
-    return buf, -1;
+    return buf, -1
 }
 
 

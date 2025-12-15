@@ -3,6 +3,7 @@ package toml
 import "core:strconv"
 import "core:fmt"
 import "core:strings"
+import "core:mem"
 import rt "base:runtime"
 
 import "dates"
@@ -68,11 +69,9 @@ next :: proc() -> string {
     return peek()
 }
 
-parse :: proc(data: string, original_file: string, allocator := context.allocator) -> (tokens: ^Table, err: Error) { 
-    context.allocator = allocator
-    
+parse :: proc(data: string, original_file: string, allocator: mem.Allocator) -> (tokens: ^Table, err: Error) {    
     // === TOKENIZER ===
-    raw_tokens, t_err := tokenize(data, file = original_file)
+    raw_tokens, t_err := tokenize(data, original_file, allocator)
     defer delete_dynamic_array(raw_tokens)
     if t_err.type != .None do return nil, t_err
     
@@ -81,7 +80,7 @@ parse :: proc(data: string, original_file: string, allocator := context.allocato
     if v_err.type != .None do return tokens, v_err
 
     // === TEMP DATA ===
-    tokens = new(Table)
+    tokens = new(Table, allocator)
 
     initial_data: GlobalData = {
         toks = raw_tokens[:],
@@ -93,6 +92,9 @@ parse :: proc(data: string, original_file: string, allocator := context.allocato
 
         aloc = allocator,
     }
+    initial_data.root.allocator = allocator
+    initial_data.this.allocator = allocator
+    initial_data.section.allocator = allocator
 
     g = &initial_data
     defer g = nil
@@ -109,7 +111,7 @@ parse :: proc(data: string, original_file: string, allocator := context.allocato
             continue
         }
 
-        parse_statement() 
+        parse_statement(allocator) 
         g.this = g.section
     }
     
@@ -122,18 +124,18 @@ parse :: proc(data: string, original_file: string, allocator := context.allocato
 
 // ==================== STATEMENTS ====================  
 
-parse_statement :: proc() {
+parse_statement :: proc(allocator: mem.Allocator) {
     ok: bool
 
-    ok = parse_section_list();  if ok do return
-    ok = parse_section();       if ok do return
-    ok = parse_assign();        if ok do return
+    ok = parse_section_list(allocator);  if ok do return
+    ok = parse_section(allocator);       if ok do return
+    ok = parse_assign(allocator);        if ok do return
 
-    parse_expr() // skips orphaned expressions
+    parse_expr(allocator) // skips orphaned expressions
 }
 
 // This function is for dotted.paths (stops at.the.NAME)
-walk_down :: proc(parent: ^Table) {
+walk_down :: proc(parent: ^Table, allocator: mem.Allocator) {
 
     // ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! ! !
     // ! This is intricate as fuck and I still don't         !
@@ -143,19 +145,19 @@ walk_down :: proc(parent: ^Table) {
 
     if peek(1) != "." do return 
 
-    name, err := unquote(next())
+    name, err := unquote(next(), {}, allocator)
     g.err.type = err.type
     g.err.more = err.more
     if err.type != .None do return
     skip() // '.'
     
     do_not_free: bool
-    defer if !do_not_free do delete_string(name)
+    defer if !do_not_free do delete_string(name, allocator)
 
     #partial switch value in parent[name] {
     case nil: 
-        g.this = new(Table); 
-        parent[name] = g.this; 
+        g.this = new(Table, allocator)
+        parent[name] = g.this
         do_not_free = true
 
     case ^Table:
@@ -163,7 +165,7 @@ walk_down :: proc(parent: ^Table) {
 
     case ^List:
         if len(value^) == 0 {
-            g.this = new(Table)
+            g.this = new(Table, allocator)
             append(value, g.this)
 
         } else {
@@ -180,35 +182,35 @@ walk_down :: proc(parent: ^Table) {
         return
     }
 
-    walk_down(g.this)
+    walk_down(g.this, allocator)
 }
 
 
-parse_section_list :: proc() -> bool {
+parse_section_list :: proc(allocator: mem.Allocator) -> bool {
     if peek(0) != "[" || peek(1) != "[" do return false
     skip(2) // '[' '['
 
     g.this = g.root
     g.section = g.root   
-    walk_down(g.root) 
+    walk_down(g.root, allocator) 
 
-    name, err := unquote(next()) // take care with ordering of this btw
+    name, err := unquote(next(), {}, allocator) // take care with ordering of this btw
     g.err.type = err.type
     g.err.more = err.more
     if err.type != .None do return true
 
     list   : ^List
-    result := new(Table)
+    result := new(Table, allocator)
 
     if name not_in g.this {
-        list = new(List)
+        list = new(List, allocator)
         g.this[name] = list
 
     } else if !is_list(g.this[name]) {
         make_err(.Key_Already_Exists, name)
     } else {
         list = g.this[name].(^List)
-        delete_string(name)
+        delete_string(name, allocator)
     }
 
     append(list, result) 
@@ -243,20 +245,20 @@ put :: proc(parent: ^Table, key: string, value: ^Table) {
     }
 }
 
-parse_section :: proc() -> bool {
+parse_section :: proc(allocator: mem.Allocator) -> bool {
     if peek() != "[" do return false
     skip() // '['
     
     g.this = g.root
     g.section = g.root   
-    walk_down(g.root)
+    walk_down(g.root, allocator)
 
-    name, err := unquote(next()) // take care with ordering of this btw
+    name, err := unquote(next(), {}, allocator) // take care with ordering of this btw
     g.err.type = err.type
     g.err.more = err.more
     if err.type != .None do return true
 
-    result := new(Table)
+    result := new(Table, allocator)
 
     put(g.this, name, result)
 
@@ -266,12 +268,12 @@ parse_section :: proc() -> bool {
     return true
 }
 
-parse_assign :: proc()  -> bool {
+parse_assign :: proc(allocator: mem.Allocator)  -> bool {
     if peek(1) != "=" && peek(1) != "." do return false
 
-    walk_down(g.this)
+    walk_down(g.this, allocator)
 
-    key, err := unquote(peek())
+    key, err := unquote(peek(), {}, allocator)
     g.err.type = err.type
     g.err.more = err.more
     if err.type != .None do return true
@@ -281,8 +283,8 @@ parse_assign :: proc()  -> bool {
         return true
     }
 
-    skip(2);
-    value := parse_expr()
+    skip(2)
+    value := parse_expr(allocator)
     
     if key in g.this {
         make_err(.Key_Already_Exists, key)
@@ -295,22 +297,22 @@ parse_assign :: proc()  -> bool {
 // ==================== EXPRESSIONS ====================  
 
 
-parse_expr :: proc() -> (result: Type) {
+parse_expr :: proc(allocator: mem.Allocator) -> (result: Type) {
     ok: bool
-    result, ok = parse_string(); if ok do return
+    result, ok = parse_string(allocator); if ok do return
     result, ok = parse_bool();   if ok do return
-    result, ok = parse_date();   if ok do return
-    result, ok = parse_float();  if ok do return
+    result, ok = parse_date(allocator);   if ok do return
+    result, ok = parse_float(allocator);  if ok do return
     result, ok = parse_int();    if ok do return
-    result, ok = parse_list();   if ok do return
-    result, ok = parse_table();  if ok do return
+    result, ok = parse_list(allocator);   if ok do return
+    result, ok = parse_table(allocator);  if ok do return
     return
 }
 
-parse_string :: proc() -> (result: string, ok: bool) {
+parse_string :: proc(allocator: mem.Allocator) -> (result: string, ok: bool) {
     if len(peek()) == 0 do return
     if r := peek()[0]; !any_of(r, '"', '\'') do return 
-    str, err := unquote(next())
+    str, err := unquote(next(), {}, allocator)
     g.err.type = err.type
     g.err.more = err.more
     return str, true
@@ -322,7 +324,7 @@ parse_bool :: proc() -> (result: bool, ok: bool) {
     return false, false
 }
 
-parse_float :: proc() -> (result: f64, ok: bool) {
+parse_float :: proc(allocator: mem.Allocator) -> (result: f64, ok: bool) {
 
     has_e_but_not_x :: proc(s: string) -> bool {
         if len(s) > 2       { if any_of(s[1], 'x', 'X') do return false }
@@ -343,16 +345,16 @@ parse_float :: proc() -> (result: f64, ok: bool) {
     if peek() == "inf" { skip(); return Infinity, true }
 
     if peek(1) == "." {
-        number := fmt.aprint(peek(), ".", peek(2), sep = "")
-        cleaned, has_alloc := strings.remove_all(number, "_")
-        defer if has_alloc do delete(cleaned)
-        defer delete(number)
+        number := fmt.aprint({ peek(), ".", peek(2) }, "", allocator)
+        cleaned, has_alloc := strings.remove_all(number, "_", allocator)
+        defer if has_alloc do delete(cleaned, allocator)
+        defer delete(number, allocator)
         skip(3)
         return strconv.parse_f64(cleaned)
 
     } else if has_e_but_not_x(peek()) {
-        cleaned, has_alloc := strings.remove_all(next(), "_")
-        defer if has_alloc do delete(cleaned)
+        cleaned, has_alloc := strings.remove_all(next(), "_", allocator)
+        defer if has_alloc do delete(cleaned, allocator)
         return strconv.parse_f64(cleaned)
     }
 
@@ -366,12 +368,13 @@ parse_int :: proc() -> (result: i64, ok: bool) {
     return
 }
 
-parse_date :: proc() -> (result: dates.Date, ok: bool) { 
+parse_date :: proc(allocator: mem.Allocator) -> (result: dates.Date, ok: bool) { 
     using strings
     if !dates.is_date_lax(peek(0)) do return
     ok = true
 
     full: Builder
+    full.buf.allocator = allocator
     write_string(&full, next())
     
     // is date, time or both?
@@ -397,19 +400,19 @@ parse_date :: proc() -> (result: dates.Date, ok: bool) {
 
 }
 
-parse_list :: proc() -> (result: ^List, ok: bool) { 
+parse_list :: proc(allocator: mem.Allocator) -> (result: ^List, ok: bool) { 
     if peek() != "[" do return
     skip() // '['
     ok = true
     
-    result = new(List)
+    result = new(List, allocator)
 
     for !any_of(peek(), "]", "") {
 
         if peek() == "," { skip(); continue }
         if peek() == "\n" { g.err.line += 1; skip(); continue }
         
-        element := parse_expr()
+        element := parse_expr(allocator)
         append(result, element) 
     }
     
@@ -417,12 +420,12 @@ parse_list :: proc() -> (result: ^List, ok: bool) {
     return
 }   
 
-parse_table :: proc() -> (result: ^Table, ok: bool) { 
+parse_table :: proc(allocator: mem.Allocator) -> (result: ^Table, ok: bool) { 
     if peek() != "{" do return
     skip() // '{'
     ok = true
 
-    result = new(Table)
+    result = new(Table, allocator)
 
     temp_this, temp_section := g.this, g.section
     for !any_of(peek(), "}", "") {
@@ -431,7 +434,7 @@ parse_table :: proc() -> (result: ^Table, ok: bool) {
         if peek() == "\n" { g.err.line += 1; skip(); continue }
 
         g.this, g.section = result, result
-        parse_assign()
+        parse_assign(allocator)
     }
     g.this, g.section = temp_this, temp_section
 
@@ -442,7 +445,7 @@ parse_table :: proc() -> (result: ^Table, ok: bool) {
 @(private="file")
 make_err :: proc(type: ErrorType, more_fmt: string, more_args: ..any) {
     g.err.type = type
-    context.allocator = g.aloc
+    // context.allocator = g.aloc
     b_reset(&g.err.more)
     b_printf(&g.err.more, more_fmt, ..more_args)
 }

@@ -1,12 +1,11 @@
 package dates
 
+import "core:mem"
 import "core:fmt"
 import "core:math"
 import "core:slice"
 import "core:strconv"
 import "core:strings"
-import "core:time"
-import "core:time/datetime"
 
 DateError :: enum {
     NONE,
@@ -128,13 +127,7 @@ from_string :: proc(date: string) -> (out: Date, err: DateError) {
     return
 }
 
-to_string :: proc(
-    date: Date,
-    time_sep := ' ',
-) -> (
-    out: string,
-    err: DateError,
-) {
+to_string :: proc(date: Date, time_sep := ' ', allocator: mem.Allocator) -> (out: string, err: DateError) {
     date := date
 
     {
@@ -150,7 +143,7 @@ to_string :: proc(
     }
 
     b: strings.Builder
-    strings.builder_init_len_cap(&b, 0, 25)
+    strings.builder_init_len_cap(&b, 0, 25, allocator)
 
     fmt.sbprintf(&b, "%04d-%02d-%02d", date.year, date.month, date.day)
     strings.write_rune(&b, time_sep)
@@ -173,7 +166,7 @@ to_string :: proc(
     return strings.to_string(b), .NONE
 }
 
-partial_date_to_string :: proc(date: Date, time_sep := ' ',) -> (out: string, err: DateError) {
+partial_date_to_string :: proc(date: Date, time_sep := ' ', allocator: mem.Allocator) -> (out: string, err: DateError) {
     date := date
     {
         using date
@@ -188,7 +181,7 @@ partial_date_to_string :: proc(date: Date, time_sep := ' ',) -> (out: string, er
     }
 
     b: strings.Builder
-    strings.builder_init_len_cap(&b, 0, 25)
+    strings.builder_init_len_cap(&b, 0, 25, allocator)
 
 	_, frac := math.modf_f32(date.second)
 	timefmt := "%02d:%02d:%02.0f"
@@ -247,33 +240,6 @@ is_date_lax :: proc(date: string) -> bool {
     } else do is_time = false
 
     return is_date || is_time
-}
-
-to_odin_datetime :: proc(date: Date) -> (result: datetime.DateTime, utc_offset: int, error: datetime.Error) {
-    seconds, milliseconds := math.modf(date.second)
-
-    result, error = datetime.components_to_datetime(
-        date.year, date.month,  date.day,
-        date.hour, date.minute, i64(seconds),
-        nanos = i64(f64(milliseconds) * 1e9)
-    )
-
-    utc_offset = date.offset_hour * 60 + date.offset_minute
-    return 
-}
-
-from_odin_datetime :: proc(dt: datetime.DateTime, utc_offset: int) -> Date {
-    date_only := dt.hour == 0 && dt.minute == 0 && dt.second == 0 && dt.nano == 0 && utc_offset == 0
-    time_only := dt.year == 0 && dt.month == 0 && dt.day == 0
-
-    return Date {
-        year = int(dt.year), month = int(dt.month), day = int(dt.day),
-        hour = int(dt.hour), minute = int(dt.minute), second = f32(dt.second) + f32(dt.nano) / 1e9,
-        
-        offset_hour = utc_offset / 60, offset_minute = utc_offset % 60,
-        is_date_only = date_only,
-        is_time_only = time_only
-    }
 }
 
 @(private)

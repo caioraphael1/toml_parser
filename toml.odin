@@ -1,7 +1,8 @@
 package toml
 
 import "core:strings"
-import "core:os"
+import "core:mem"
+import os "core:os/os2"
 import "base:intrinsics"
 import "base:runtime"
 import "dates"
@@ -21,52 +22,50 @@ b_write_string :: strings.write_string
 b_printf       :: fmt.sbprintf
 
 // Parses the file. You can use print_error(err) for error messages.
-parse_file :: proc(filename: string, allocator := context.allocator) -> (section: ^Table, err: Error) {
-    context.allocator = allocator
-    blob, ok_file_read := os.read_entire_file_from_filename(filename)
-    if !ok_file_read {
+parse_file :: proc(filename: string, allocator: mem.Allocator) -> (section: ^Table, err: Error) {
+    blob, read_err := os.read_entire_file(filename, allocator)
+    if read_err != nil {
         err.type = .Bad_File
         b_write_string(&err.more, filename)
         return nil, err
     }
 
     section, err = parse(string(blob), filename, allocator)
-    delete_slice(blob)
+    delete_slice(blob, allocator)
     return
 }
 
 // This is made to be used with default, err := #load(filename). original_filename is only used for errors.
-parse_data :: proc(data: []u8, original_filename := "untitled data", allocator := context.allocator) -> (section: ^Table, err: Error) {
+parse_data :: proc(data: []u8, original_filename := "untitled data", allocator: mem.Allocator) -> (section: ^Table, err: Error) {
     return parse(string(data), original_filename, allocator)
 }
 
 // Frees all of the memory allocated by the parser for a particular type
 // It is recursive, so you can just give it the root Table.
-deep_delete :: proc(type: Type, allocator := context.allocator) -> (err: runtime.Allocator_Error) {
-    context.allocator = allocator
+deep_delete :: proc(type: Type, allocator: mem.Allocator) -> (err: runtime.Allocator_Error) {
     #partial switch value in type {
     case ^List:
         if value == nil do break
         for &item in value { 
-            err = deep_delete(item, allocator); 
+            err = deep_delete(item, allocator)
             if err != .None do return
         }
         err = delete_dynamic_array(value^)
-        if err == .None do free(value)
+        if err == .None do free(value, allocator)
 
     case ^Table:
         if value == nil do break
         for k, &v in value { 
-            err = delete_string(k); 
+            err = delete_string(k, allocator)
             if err != .None do return 
-            err = deep_delete(v, allocator); 
+            err = deep_delete(v, allocator)
             if err != .None do return 
         }
         err = delete_map(value^)
-        if err == .None do free(value)
+        if err == .None do free(value, allocator)
 
     case string:
-        err = delete_string(value)
+        err = delete_string(value, allocator)
     }
     return
 }

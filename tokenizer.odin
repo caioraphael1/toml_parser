@@ -1,7 +1,11 @@
 package toml
 
-tokenize :: proc(raw: string, file := "<unknown file>") -> (tokens: [dynamic] string, err: Error) {
+import "core:mem"
+
+tokenize :: proc(raw: string, file := "<unknown file>", allocator: mem.Allocator) -> (tokens: [dynamic] string, err: Error) {
     err = { file = file, line = 1 }
+
+    tokens.allocator = allocator
 
     skip: int
     outer: for r, i in raw {
@@ -47,7 +51,7 @@ tokenize :: proc(raw: string, file := "<unknown file>") -> (tokens: [dynamic] st
         // ============ START OF STRINGS ============ 
         case starts_with(this, "\"\"\""):
             j, runes := find(this, "\"\"\"", 3)
-            if j == -1 do return tokens, set_err(&err, .Missing_Quote, shorten_string(this, 16))
+            if j == -1 do return tokens, set_err(&err, .Missing_Quote, shorten_string(this, 16, true, allocator))
             j2, runes2 := go_further(this[j + 3:], '"')
             j += j2; runes += runes2
             append(&tokens, this[:j + 3])
@@ -55,7 +59,7 @@ tokenize :: proc(raw: string, file := "<unknown file>") -> (tokens: [dynamic] st
 
         case starts_with(this, "'''"):
             j, runes := find(this, "'''", 3, false)
-            if j == -1 do return tokens, set_err(&err, .Missing_Quote, shorten_string(this, 16))
+            if j == -1 do return tokens, set_err(&err, .Missing_Quote, shorten_string(this, 16, true, allocator))
             j2, runes2 := go_further(this[j + 3:], '\'')
             j += j2; runes += runes2
             append(&tokens, this[:j + 3])
@@ -63,13 +67,13 @@ tokenize :: proc(raw: string, file := "<unknown file>") -> (tokens: [dynamic] st
         
         case r == '"':
             j, runes := find(this, "\"", 1)
-            if j == -1 do return tokens, set_err(&err, .Missing_Quote, shorten_string(this, 16))
+            if j == -1 do return tokens, set_err(&err, .Missing_Quote, shorten_string(this, 16, true, allocator))
             append(&tokens, this[:j + 1])
             skip += runes
 
         case r == '\'':
             j, runes := find(this, "'", 1, false)
-            if j == -1 do return tokens, set_err(&err, .Missing_Quote, shorten_string(this, 16))
+            if j == -1 do return tokens, set_err(&err, .Missing_Quote, shorten_string(this, 16, true, allocator))
             append(&tokens, this[:j + 1])
             skip += runes
         // ============  END OF STRINGS  ============ 
@@ -78,7 +82,7 @@ tokenize :: proc(raw: string, file := "<unknown file>") -> (tokens: [dynamic] st
         // this is "text", numbers & so on
         case:
             key := leftover(this)
-            if len(key) == 0 do return tokens, set_err(&err, .None, shorten_string(this, 1))
+            if len(key) == 0 do return tokens, set_err(&err, .None, shorten_string(this, 1, true, allocator))
             append(&tokens, key)
             skip += len(key) - 1
         }

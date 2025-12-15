@@ -19,7 +19,7 @@ Unmarshal_Error :: enum {
 	Unsupported_Type,
 }
 
-unmarshal_any :: proc(data: []byte, v: any, allocator := context.allocator) -> Unmarshal_Error {
+unmarshal_any :: proc(data: []byte, v: any, allocator: mem.Allocator) -> Unmarshal_Error {
 	v := v
 	if v == nil || v.id == nil {
 		return .Invalid_Parameter
@@ -48,20 +48,20 @@ unmarshal_any :: proc(data: []byte, v: any, allocator := context.allocator) -> U
 		data = (^rawptr)(v.data)^,
 		id   = ti.variant.(reflect.Type_Info_Pointer).elem.id,
 	}
-	if err := unmarshal_table(v, table); err != nil {
+	if err := unmarshal_table(v, table, allocator); err != nil {
 		return err
 	}
 	return nil
 }
 
-unmarshal :: proc(data: []byte, ptr: ^$T, allocator := context.allocator) -> Unmarshal_Error {
+unmarshal :: proc(data: []byte, ptr: ^$T, allocator: mem.Allocator) -> Unmarshal_Error {
 	return unmarshal_any(data, ptr, allocator)
 }
 
 unmarshal_string :: proc(
 	data: string,
 	ptr: ^$T,
-	allocator := context.allocator,
+	allocator: mem.Allocator,
 ) -> Unmarshal_Error {
 	return unmarshal_any(transmute([]byte)data, ptr, allocator)
 }
@@ -277,7 +277,7 @@ assign_date :: proc(val: any, date: dates.Date) -> bool {
 }
 
 @(private)
-unmarshal_string_token :: proc(val: any, str: string, ti: ^reflect.Type_Info) -> bool {
+unmarshal_string_token :: proc(val: any, str: string, ti: ^reflect.Type_Info, allocator: mem.Allocator) -> bool {
 	val := val
 	switch &v in val {
 	case string:
@@ -285,7 +285,7 @@ unmarshal_string_token :: proc(val: any, str: string, ti: ^reflect.Type_Info) ->
 		return true
 	case cstring:
 		if str == "" {
-			cstr, cstr_err := strings.clone_to_cstring(str)
+			cstr, cstr_err := strings.clone_to_cstring(str, allocator)
 			if cstr_err != .None do return false
 			v = cstr
 		} else {
@@ -331,7 +331,7 @@ unmarshal_string_token :: proc(val: any, str: string, ti: ^reflect.Type_Info) ->
 }
 
 @(private)
-unmarshal_value :: proc(dest: any, value: Type) -> (err: Unmarshal_Error) {
+unmarshal_value :: proc(dest: any, value: Type, allocator: mem.Allocator) -> (err: Unmarshal_Error) {
 	dest := dest
 	ti := reflect.type_info_base(type_info_of(dest.id))
 
@@ -354,7 +354,7 @@ unmarshal_value :: proc(dest: any, value: Type) -> (err: Unmarshal_Error) {
 					data = dest.data,
 					id   = variant.id,
 				}
-				if err = unmarshal_value(variant_any, value); err == nil {
+				if err = unmarshal_value(variant_any, value, allocator); err == nil {
 					raw_tag := i
 					if !u.no_nil do raw_tag += 1
 					tag := any {
@@ -371,10 +371,10 @@ unmarshal_value :: proc(dest: any, value: Type) -> (err: Unmarshal_Error) {
 
 	switch v in value {
 	case ^List:
-		unmarshal_list(dest, v) or_return
+		unmarshal_list(dest, v, allocator) or_return
 
 	case ^Table:
-		unmarshal_table(dest, v) or_return
+		unmarshal_table(dest, v, allocator) or_return
 
 	case bool:
 		if !assign_bool(dest, v) {
@@ -397,7 +397,7 @@ unmarshal_value :: proc(dest: any, value: Type) -> (err: Unmarshal_Error) {
 		}
 
 	case string:
-		if !unmarshal_string_token(dest, v, ti) {
+		if !unmarshal_string_token(dest, v, ti, allocator) {
 			return .Unsupported_Type
 		}
 	}
@@ -416,11 +416,12 @@ toml_name_from_tag_value :: proc(value: string) -> (toml_name, extra: string) {
 }
 
 @(private)
-unmarshal_list :: proc(dest: any, list: ^List) -> Unmarshal_Error {
+unmarshal_list :: proc(dest: any, list: ^List, allocator: mem.Allocator) -> Unmarshal_Error {
 	assign_list :: proc(
 		base: rawptr,
 		elem_ti: ^reflect.Type_Info,
 		list: ^List,
+        allocator: mem.Allocator,
 	) -> Unmarshal_Error {
 		for i in 0 ..< len(list) {
 			elem_ptr := rawptr(uintptr(base) + uintptr(i) * uintptr(elem_ti.size))
@@ -429,7 +430,7 @@ unmarshal_list :: proc(dest: any, list: ^List) -> Unmarshal_Error {
 				id   = elem_ti.id,
 			}
 
-			unmarshal_value(elem, list[i]) or_return
+			unmarshal_value(elem, list[i], allocator) or_return
 		}
 
 		return .None
@@ -447,7 +448,7 @@ unmarshal_list :: proc(dest: any, list: ^List) -> Unmarshal_Error {
 		raw.data = raw_data(data)
 		raw.len = len(list)
 
-		return assign_list(raw.data, t.elem, list)
+		return assign_list(raw.data, t.elem, list, allocator)
 
 	case reflect.Type_Info_Dynamic_Array:
 		raw := cast(^mem.Raw_Dynamic_Array)dest.data
@@ -457,22 +458,22 @@ unmarshal_list :: proc(dest: any, list: ^List) -> Unmarshal_Error {
 		}
 		raw.data = raw_data(data)
 		raw.len = len(list)
-		raw.allocator = context.allocator
-		return assign_list(raw.data, t.elem, list)
+		raw.allocator = allocator
+		return assign_list(raw.data, t.elem, list, allocator)
 
 	case reflect.Type_Info_Array:
 		// NOTE(bill): Allow lengths which are less than the dst array
 		if len(list) > t.count {
 			return .Unsupported_Type
 		}
-		return assign_list(dest.data, t.elem, list)
+		return assign_list(dest.data, t.elem, list, allocator)
 
 	case reflect.Type_Info_Enumerated_Array:
 		// NOTE(bill): Allow lengths which are less than the dst array
 		if len(list) > t.count {
 			return .Unsupported_Type
 		}
-		return assign_list(dest.data, t.elem, list)
+		return assign_list(dest.data, t.elem, list, allocator)
 
 	case reflect.Type_Info_Complex:
 		// NOTE(bill): Allow lengths which are less than the dst array
@@ -482,11 +483,11 @@ unmarshal_list :: proc(dest: any, list: ^List) -> Unmarshal_Error {
 
 		switch ti.id {
 		case complex32:
-			return assign_list(dest.data, type_info_of(f16), list)
+			return assign_list(dest.data, type_info_of(f16), list, allocator)
 		case complex64:
-			return assign_list(dest.data, type_info_of(f32), list)
+			return assign_list(dest.data, type_info_of(f32), list, allocator)
 		case complex128:
-			return assign_list(dest.data, type_info_of(f64), list)
+			return assign_list(dest.data, type_info_of(f64), list, allocator)
 		}
 
 
@@ -495,7 +496,7 @@ unmarshal_list :: proc(dest: any, list: ^List) -> Unmarshal_Error {
 	return .Unsupported_Type
 }
 
-unmarshal_table :: proc(v: any, table: ^Table) -> Unmarshal_Error {
+unmarshal_table :: proc(v: any, table: ^Table, allocator: mem.Allocator) -> Unmarshal_Error {
 	v := v
 	ti := reflect.type_info_base(type_info_of(v.id))
 
@@ -577,7 +578,7 @@ unmarshal_table :: proc(v: any, table: ^Table) -> Unmarshal_Error {
 					data = field_ptr,
 					id   = type.id,
 				}
-				unmarshal_value(field, table[key])
+				unmarshal_value(field, table[key], allocator)
 			}
 		}
 
@@ -607,7 +608,7 @@ unmarshal_table :: proc(v: any, table: ^Table) -> Unmarshal_Error {
 
 		for key, value in table {
 			mem.zero_slice(elem_backing)
-			if err := unmarshal_value(map_backing_value, value); err != nil {
+			if err := unmarshal_value(map_backing_value, value, allocator); err != nil {
 				delete(key, table.allocator)
 				return err
 			}

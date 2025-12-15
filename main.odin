@@ -25,6 +25,8 @@ package toml
 
 import "core:encoding/json"
 import "core:fmt"
+import "base:runtime"
+import "core:mem"
 import "core:os"
 import "dates"
 
@@ -36,17 +38,22 @@ main :: proc() {
 
 	// parse_file("testing/current.toml")
 
-	data := make([]u8, 16 * 1024 * 1024)
+    allocator := runtime.heap_allocator()
+    
+	data := make([]u8, 16 * 1024 * 1024, allocator)
 	count, err_read := os.read(os.stdin, data)
 	assert(err_read == nil)
 
-	table, err := parse(string(data[:count]), "<stdin>")
+	table, err := parse(string(data[:count]), "<stdin>", allocator)
 
-	if err.type != .None {print_error(err); os.exit(1)}
+	if err.type != .None {
+        print_error(err, allocator)
+        os.exit(1)
+    }
 
-	idk, ok := marshal(table)
+	idk, ok := marshal(table, allocator)
 	if !ok do return
-	json, _ := json.marshal(idk)
+	json, _ := json.marshal(idk, allocator = allocator)
 	logln(string(json))
 
 	// for the valid/key/quoted-unicode test
@@ -54,7 +61,7 @@ main :: proc() {
 	//     logln(k, "=", v)
 	// }
 
-	deep_delete(table)
+	deep_delete(table, allocator)
 	// delete_error(&err)
 
 }
@@ -94,7 +101,7 @@ HelpMePlease :: union {
 	[]HelpMePlease,
 }
 
-marshal :: proc(input: Type) -> (result: HelpMePlease, ok: bool) {
+marshal :: proc(input: Type, allocator: mem.Allocator) -> (result: HelpMePlease, ok: bool) {
 	output: TestingType
 
 	switch value in input {
@@ -102,14 +109,14 @@ marshal :: proc(input: Type) -> (result: HelpMePlease, ok: bool) {
 		assert(false)
 	case ^List:
 		if value == nil do return result, false
-		out := make([]HelpMePlease, len(value))
-		for v, i in value {out[i] = marshal(v) or_continue}
+		out := make([]HelpMePlease, len(value), allocator)
+		for v, i in value {out[i] = marshal(v, allocator) or_continue}
 		return out, true
 
 	case ^Table:
 		if value == nil do return result, false
-		out := make(map[string]HelpMePlease)
-		for k, v in value {out[k] = marshal(v) or_continue}
+		out := make(map[string]HelpMePlease, allocator)
+		for k, v in value {out[k] = marshal(v, allocator) or_continue}
 		return out, true
 
 	case string:
@@ -120,21 +127,21 @@ marshal :: proc(input: Type) -> (result: HelpMePlease, ok: bool) {
 	case bool:
 		output = {
 			type  = "bool",
-			value = fmt.aprint(value),
+			value = fmt.aprint({ value }, allocator = allocator),
 		}
 	case i64:
 		output = {
 			type  = "integer",
-			value = fmt.aprint(value),
+			value = fmt.aprint({ value }, allocator = allocator),
 		}
 	case f64:
 		output = {
 			type  = "float",
-			value = fmt.aprint(value),
+			value = fmt.aprint({ value }, allocator = allocator),
 		}
 
 	case dates.Date:
-		result, err := dates.partial_date_to_string(date = value, time_sep = 'T')
+		result, err := dates.partial_date_to_string(value, 'T', allocator)
 		if err != .NONE do os.exit(1) // I shouldn't do this like that...
 
 		date := value

@@ -13,8 +13,8 @@ import "toml/dates"
 main :: proc() {
   using toml
   
-  section, err1 := parse_file("toml/example.toml", context.temp_allocator)
-  default, err2 := parse(#load("toml/example.toml"), "example.toml", context.temp_allocator)
+  section, err1 := parse_file("toml/example.toml", runtime.temp_allocator)
+  default, err2 := parse(#load("toml/example.toml"), "example.toml", runtime.temp_allocator)
 
   if print_error(err2) do return
   print_error(err1)
@@ -53,7 +53,7 @@ Although, you can simply use `or_else` or just `val, ok := get(...`. I propose, 
 
 ## Errors
 ```odin
-format_error :: proc(err: Error, allocator := context.temp_allocator) -> (message: string, fatal: bool) 
+format_error :: proc(err: Error, allocator := runtime.temp_allocator) -> (message: string, fatal: bool) 
 ```
 Format's the error and returns it as well as whether it was fatal or not.
 

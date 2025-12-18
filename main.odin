@@ -39,7 +39,7 @@ main :: proc() {
 	// parse_file("testing/current.toml")
 
     allocator := runtime.heap_allocator()
-    
+   
 	data := make([]u8, 16 * 1024 * 1024, allocator)
 	count, err_read := os.read(os.stdin, data)
 	assert(err_read == nil)

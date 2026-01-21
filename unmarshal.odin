@@ -302,7 +302,7 @@ unmarshal_string_token :: proc(val: any, str: string, ti: ^reflect.Type_Info, al
 	case reflect.Type_Info_Enum:
 		for name, i in variant.names {
 			if name == str {
-				assign_int(val, variant.values[i])
+				_ = assign_int(val, variant.values[i])
 				return true
 			}
 		}
@@ -346,7 +346,7 @@ unmarshal_value :: proc(dest: any, value: Type, allocator: mem.Allocator) -> (er
 					data = rawptr(uintptr(dest.data) + u.tag_offset),
 					id   = u.tag_type.id,
 				}
-				assign_int(tag, 1)
+				_ = assign_int(tag, 1)
 			}
 		} else if dest.id != Type {
 			for variant, i in u.variants {
@@ -361,7 +361,7 @@ unmarshal_value :: proc(dest: any, value: Type, allocator: mem.Allocator) -> (er
 						data = rawptr(uintptr(dest.data) + u.tag_offset),
 						id   = u.tag_type.id,
 					}
-					assign_int(tag, raw_tag)
+					_ = assign_int(tag, raw_tag)
 					return
 				}
 			}
@@ -578,7 +578,7 @@ unmarshal_table :: proc(v: any, table: ^Table, allocator: mem.Allocator) -> Unma
 					data = field_ptr,
 					id   = type.id,
 				}
-				unmarshal_value(field, table[key], allocator)
+				_ = unmarshal_value(field, table[key], allocator)
 			}
 		}
 
@@ -599,7 +599,7 @@ unmarshal_table :: proc(v: any, table: ^Table, allocator: mem.Allocator) -> Unma
 		if elem_backing_err != .None {
 			return .Out_Of_Memory
 		}
-		defer delete(elem_backing, table.allocator)
+		defer _ = delete(elem_backing, table.allocator)
 
 		map_backing_value := any {
 			data = raw_data(elem_backing),
@@ -609,7 +609,7 @@ unmarshal_table :: proc(v: any, table: ^Table, allocator: mem.Allocator) -> Unma
 		for key, value in table {
 			mem.zero_slice(elem_backing)
 			if err := unmarshal_value(map_backing_value, value, allocator); err != nil {
-				delete(key, table.allocator)
+				_ = delete(key, table.allocator)
 				return err
 			}
 
@@ -623,12 +623,12 @@ unmarshal_table :: proc(v: any, table: ^Table, allocator: mem.Allocator) -> Unma
 				map_backing_value.data,
 			)
 			if set_ptr == nil {
-				delete(key, table.allocator)
+				_ = delete(key, table.allocator)
 			}
 
 			// there's no need to keep string value on the heap, since it was copied into map
 			if reflect.is_integer(t.key) {
-				delete(key, table.allocator)
+				_ = delete(key, table.allocator)
 			}
 		}
 

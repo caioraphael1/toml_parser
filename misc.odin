@@ -34,16 +34,16 @@ shorten_string :: proc(s: string, limit: int, or_newline := true, allocator: mem
 // when literal is true, function JUST returns str
 @private
 cleanup_backslashes :: proc(str: string, literal := false, allocator: mem.Allocator) -> (result: string, err: Error) {
-    str := strings.clone(str, allocator)
+    str, _ := strings.clone(str, allocator)
     if literal do return str, err
 
     set_err :: proc(err: ^Error, type: ErrorType, more_fmt: string, more_args: ..any) {
         err.type = type
-        b_printf(&err.more, more_fmt, ..more_args)
+        fmt.sbprintf(&err.more, more_fmt, ..more_args)
     }
 
     using strings
-    b: Builder
+    b: strings.Builder
     b.buf.allocator = allocator
     // defer builder_destroy(&b) // don't need to, shouldn't even free the original str here
 
@@ -78,7 +78,7 @@ cleanup_backslashes :: proc(str: string, literal := false, allocator: mem.Alloca
 
                 parsed_rune, _ := utf8.decode_rune_in_bytes(buf[:bytes])
                 
-                write_rune(&b, parsed_rune)
+                _, _ = write_rune(&b, parsed_rune)
                 to_skip = 4
 
             case 'U': // for \UXXXXXXXX
@@ -96,7 +96,7 @@ cleanup_backslashes :: proc(str: string, literal := false, allocator: mem.Alloca
                 
                 parsed_rune, _ := utf8.decode_rune_in_bytes(buf[:bytes])
                 
-                write_rune(&b, parsed_rune)
+                _, _ = write_rune(&b, parsed_rune)
                 to_skip = 8
 
             case 'x':
@@ -131,16 +131,17 @@ cleanup_backslashes :: proc(str: string, literal := false, allocator: mem.Alloca
                 return str, err
             }
         } else if r != '\\' {
-            write_rune(&b, r)
+            _, _ = write_rune(&b, r)
         } else {
             escaped = true
         }
 
         last = r
     }
-    delete_string(str, allocator)
-    defer b_destroy(&b) // you can't free a builder that has been cast to string
-    return strings.clone(to_string(b), allocator), err
+    _ = delete_string(str, allocator)
+    defer strings.builder_destroy(&b) // you can't free a builder that has been cast to string
+    b_clone, _ := strings.clone(to_string(b), allocator)
+    return b_clone, err
 }
 
 @private
@@ -215,7 +216,7 @@ unquote :: proc(a: string, fluff: []any, allocator: mem.Allocator) -> (result: s
         }
         if count != 3 && count % 3 == 0 {
             err.type = .Bad_Value
-            b_write_string(&err.more, "The quote count in multiline string is divisible by 3. Lol, get fucked!")
+            strings.write_string(&err.more, "The quote count in multiline string is divisible by 3. Lol, get fucked!")
             return a, err
         }
     }

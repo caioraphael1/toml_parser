@@ -1,5 +1,7 @@
 package toml
 
+import "core:fmt"
+
 import "core:mem"
 
 tokenize :: proc(raw: string, file := "<unknown file>", allocator: mem.Allocator) -> (tokens: [dynamic] string, err: Error) {
@@ -14,12 +16,12 @@ tokenize :: proc(raw: string, file := "<unknown file>", allocator: mem.Allocator
         switch { // by the way, do NOT use the 'fallthrough' keyword
         // makes more invalid tests pass
         case !is_bare_rune_valid(r):
-            set_err(&err, .Bad_Unicode_Char, "'%v'", r)
+            _ = set_err(&err, .Bad_Unicode_Char, "'%v'", r)
             return
 
         // throws error if only a carriage return is found, I guess, fuck macOS ..9?
         case r == '\r' && len(raw) > i + 1 && raw[i + 1] != '\n':
-            set_err(&err, .Bad_Unicode_Char, "carriage returns must be followed by new lines in TOML!")
+            _ = set_err(&err, .Bad_Unicode_Char, "carriage returns must be followed by new lines in TOML!")
             return
 
         // skips until the end of e.g.: string and comment (this replaces having state.)
@@ -28,19 +30,19 @@ tokenize :: proc(raw: string, file := "<unknown file>", allocator: mem.Allocator
 
         // unix new lines
         case r == '\n':
-            append(&tokens, "\n")
+            _ = append(&tokens, "\n")
             err.line += 1
 
         // windows new lines
         case starts_with(raw[i:], "\r\n"):
-            append(&tokens, "\n")
+            _ = append(&tokens, "\n")
             err.line += 1
 
         case is_space(this[0]):
             // do nothing
 
         case is_special(this[0]):
-            append(&tokens, this[:1])
+            _ = append(&tokens, this[:1])
 
         // removes a comment (in one go)
         case r == '#':
@@ -54,7 +56,7 @@ tokenize :: proc(raw: string, file := "<unknown file>", allocator: mem.Allocator
             if j == -1 do return tokens, set_err(&err, .Missing_Quote, shorten_string(this, 16, true, allocator))
             j2, runes2 := go_further(this[j + 3:], '"')
             j += j2; runes += runes2
-            append(&tokens, this[:j + 3])
+            _ = append(&tokens, this[:j + 3])
             skip += runes + 2
 
         case starts_with(this, "'''"):
@@ -62,19 +64,19 @@ tokenize :: proc(raw: string, file := "<unknown file>", allocator: mem.Allocator
             if j == -1 do return tokens, set_err(&err, .Missing_Quote, shorten_string(this, 16, true, allocator))
             j2, runes2 := go_further(this[j + 3:], '\'')
             j += j2; runes += runes2
-            append(&tokens, this[:j + 3])
+            _ = append(&tokens, this[:j + 3])
             skip += runes + 2
         
         case r == '"':
             j, runes := find(this, "\"", 1)
             if j == -1 do return tokens, set_err(&err, .Missing_Quote, shorten_string(this, 16, true, allocator))
-            append(&tokens, this[:j + 1])
+            _ = append(&tokens, this[:j + 1])
             skip += runes
 
         case r == '\'':
             j, runes := find(this, "'", 1, false)
             if j == -1 do return tokens, set_err(&err, .Missing_Quote, shorten_string(this, 16, true, allocator))
-            append(&tokens, this[:j + 1])
+            _ = append(&tokens, this[:j + 1])
             skip += runes
         // ============  END OF STRINGS  ============ 
 
@@ -83,7 +85,7 @@ tokenize :: proc(raw: string, file := "<unknown file>", allocator: mem.Allocator
         case:
             key := leftover(this)
             if len(key) == 0 do return tokens, set_err(&err, .None, shorten_string(this, 1, true, allocator))
-            append(&tokens, key)
+            _ = append(&tokens, key)
             skip += len(key) - 1
         }
     }
@@ -127,6 +129,6 @@ go_further :: proc(a: string, r1: rune) -> (bytes: int, runes: int) {
 @(private="file")
 set_err :: proc(err: ^Error, type: ErrorType, more_fmt: string, more_args: ..any) -> Error {
     err.type = type
-    b_printf(&err.more, more_fmt, ..more_args)
+    fmt.sbprintf(&err.more, more_fmt, ..more_args)
     return err^
 }

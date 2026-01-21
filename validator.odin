@@ -4,6 +4,8 @@ import "base:runtime"
 import "core:fmt"
 import "core:mem"
 
+import "core:strings"
+
 ErrorType :: enum {
     None,
 
@@ -34,17 +36,17 @@ Error :: struct {
     type: ErrorType,
     line: int,    
     file: string,
-    more: Builder,
-    formatted: Builder,
+    more: strings.Builder,
+    formatted: strings.Builder,
 }
 
 // The filename is not freed, since it is only sliced 
 delete_error :: proc(err: ^Error) {
     if err.type != .None { 
-        b_destroy(&err.more)
+        strings.builder_destroy(&err.more)
     }
     if len(err.formatted.buf) > 0 {
-        b_destroy(&err.formatted)
+        strings.builder_destroy(&err.formatted)
     }
 }
 
@@ -54,8 +56,8 @@ print_error :: proc(err: Error, allocator: mem.Allocator) -> (fatal: bool) {
     message: string
     message, fatal = format_error(&err, allocator)
     if message != "" {
-        logf("[TOML ERROR] %s", message) 
-        delete(message, allocator)
+        fmt.printf("[TOML ERROR] %s", message) 
+        _ = delete(message, allocator)
     }
     return fatal
 }
@@ -87,8 +89,8 @@ format_error :: proc(err: ^Error, allocator: mem.Allocator) -> (message: string,
         .Unexpected_Token   = "Found a token that should not be there",
     }
 
-    err.formatted.buf = make(type_of(err.formatted.buf), allocator)
-    b_printf(&err.formatted, "%s:%d %s! %s\n", err.file, err.line + 1, descriptions[err.type], err.more.buf[:])
+    err.formatted.buf, _ = make(type_of(err.formatted.buf), allocator)
+    fmt.sbprintf(&err.formatted, "%s:%d %s! %s\n", err.file, err.line + 1, descriptions[err.type], err.more.buf[:])
 
     return string(err.formatted.buf[:]), true
 }
@@ -103,7 +105,7 @@ validate :: proc(raw_tokens: [] string, file: string, allocator: mem.Allocator) 
     initial_data: GlobalData = {
         toks = raw_tokens,
         err  = { line = 1, file = file },
-        aloc = allocator,
+        alloc = allocator,
     }
 
     snapshot := g
@@ -136,7 +138,7 @@ validate_array :: proc() -> bool {
     }
     
     skip(2) // '[' '['
-    validate_path()
+    _ = validate_path()
 
     #no_bounds_check {
         if peek(0) == "]" && peek(1) == "]" && err_if_not(peek(0)[1] == ']', .Missing_Bracket, "In section array both brackets must follow one another! ']]' not '] ]'") do return false
@@ -152,7 +154,7 @@ validate_table :: proc() -> bool {
     if peek(0) != "[" do return false
     
     skip() // '['
-    validate_path()
+    _ = validate_path()
     return !err_if_not(next() == "]", .Missing_Bracket, "']' missing in section declaration")   
 }
 
@@ -302,15 +304,15 @@ validate_date :: proc() -> (ok: bool) {  //{{{
         if len(peek()) > 11 && (peek()[10] == 'T' || peek()[10] == 't') {
             if !validate_time(peek()[11:]) do return false
         }
-        next()
+        _ = next()
         ok = true
     }
     
     // Time can be either without date or split from it by whitespace. 
     // This handles both scenarios
     if len(peek()) > 2 && peek()[2] == ':' {
-        validate_time(peek())
-        next()
+        _ = validate_time(peek())
+        _ = next()
         ok = true
     }
 
@@ -419,17 +421,17 @@ validate_inline_list :: proc() -> bool { //{{{
     last_was_comma: bool
     for {
 
-        skip_newline()
+        _ = skip_newline()
         if peek() == "]" do break
 
         if !validate_expr() do return false
 
-        skip_newline()
+        _ = skip_newline()
         if peek() == "]" do break
 
         if err_if_not(peek() == ",", .Missing_Comma, "Comma is missing between elements") do return false
         skip() // ','
-        skip_newline()
+        _ = skip_newline()
         if peek() == "," {
             make_err(.Double_Comma, "double comma found in an inline list.")
             return false
@@ -445,17 +447,17 @@ validate_inline_table :: proc() -> bool { //{{{
     skip() // '{'
     
     for {
-        skip_newline()
+        _ = skip_newline()
         if peek() == "}" do break
 
         if !validate_assign() do return false
 
-        skip_newline()
+        _ = skip_newline()
         if peek() == "}" do break
         
         if err_if_not(peek() == ",", .Missing_Comma, "Comma is missing between elements") do return false
         skip() // ','  // you can have trailing commas in my inline tables, why not?
-        skip_newline()
+        _ = skip_newline()
         if peek() == "," {
             make_err(.Double_Comma, "double comma found in an inline list.")
             return false
@@ -468,12 +470,12 @@ validate_inline_table :: proc() -> bool { //{{{
 @(private="file")
 make_err :: proc(type: ErrorType, more_fmt: string, more_args: ..any) {
     g.err.type = type
-    // context.allocator = g.aloc
-    b_reset(&g.err.more)
-    b_printf(&g.err.more, more_fmt, ..more_args)
+    g.err.more.buf.allocator = g.alloc
+    strings.builder_reset(&g.err.more)
+    fmt.sbprintf(&g.err.more, more_fmt, ..more_args)
 }
 
-@(private="file")
+@(private="file", optional_results)
 err_if_not :: proc(cond: bool, type: ErrorType, more_fmt: string, more_args: ..any) -> bool {
     if !cond do make_err(type, more_fmt, ..more_args)
     return !cond

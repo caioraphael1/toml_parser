@@ -143,13 +143,13 @@ to_string :: proc(date: Date, time_sep := ' ', allocator: mem.Allocator) -> (out
     }
 
     b: strings.Builder
-    strings.builder_init_len_cap(&b, 0, 25, allocator)
+    _ = strings.builder_init_len_cap(&b, 0, 25, allocator)
 
     fmt.sbprintf(&b, "%04d-%02d-%02d", date.year, date.month, date.day)
-    strings.write_rune(&b, time_sep)
+    _, _ = strings.write_rune(&b, time_sep)
     fmt.sbprintf(&b, "%02d:%02d:%02.0f", date.hour, date.minute, date.second)
 
-    if date.offset_hour == 0 && date.offset_minute == 0 do strings.write_rune(&b, 'Z')
+    if date.offset_hour == 0 && date.offset_minute == 0 do _, _ = strings.write_rune(&b, 'Z')
     else {
         if date.offset_minute != 0 && sign(date.offset_hour) != sign(date.offset_minute) {
             date.offset_hour += sign(date.offset_minute)
@@ -157,8 +157,8 @@ to_string :: proc(date: Date, time_sep := ' ', allocator: mem.Allocator) -> (out
             fmt.printf("DATE PARSER WARNING: signs of your Date.offset_hour & Date.offset_minute do not match! " + "Given dates will be safely converted, but may be unexpected. " + "Go to line: %d in: %s to find out more.\n", #line - 5, #file)
         }
 
-        if date.offset_hour < 0 do strings.write_rune(&b, '-')
-        else do strings.write_rune(&b, '+')
+        if date.offset_hour < 0 do _, _ = strings.write_rune(&b, '-')
+        else do _, _ = strings.write_rune(&b, '+')
 
         fmt.sbprintf(&b, "%02d:%02d", abs(date.offset_hour), abs(date.offset_minute))
     }
@@ -181,7 +181,7 @@ partial_date_to_string :: proc(date: Date, time_sep := ' ', allocator: mem.Alloc
     }
 
     b: strings.Builder
-    strings.builder_init_len_cap(&b, 0, 25, allocator)
+    _ = strings.builder_init_len_cap(&b, 0, 25, allocator)
 
 	_, frac := math.modf_f32(date.second)
 	timefmt := "%02d:%02d:%02.0f"
@@ -197,12 +197,12 @@ partial_date_to_string :: proc(date: Date, time_sep := ' ', allocator: mem.Alloc
     }
 
     fmt.sbprintf(&b, "%04d-%02d-%02d", date.year, date.month, date.day)
-    strings.write_rune(&b, time_sep)
+    _, _ = strings.write_rune(&b, time_sep)
 	fmt.sbprintf(&b, timefmt, date.hour, date.minute, date.second)
 
     if date.is_date_local do return strings.to_string(b), .NONE
 
-    if date.offset_hour == 0 && date.offset_minute == 0 do strings.write_rune(&b, 'Z')
+    if date.offset_hour == 0 && date.offset_minute == 0 do _, _ = strings.write_rune(&b, 'Z')
     else {
         if date.offset_minute != 0 && sign(date.offset_hour) != sign(date.offset_minute) {
             date.offset_hour += sign(date.offset_minute)
@@ -210,8 +210,11 @@ partial_date_to_string :: proc(date: Date, time_sep := ' ', allocator: mem.Alloc
             fmt.printf("DATE PARSER WARNING: signs of your Date.offset_hour & Date.offset_minute do not match! " + "Given dates will be safely converted, but may be unexpected. " + "Go to line: %d in: %s to find out more.\n", #line - 5, #file)
         }
 
-        if date.offset_hour < 0 do strings.write_rune(&b, '-')
-        else do strings.write_rune(&b, '+')
+        if date.offset_hour < 0 {
+            _, _ = strings.write_rune(&b, '-')
+        } else {
+            _, _ = strings.write_rune(&b, '+')
+        }
 
         fmt.sbprintf(&b, "%02d:%02d", abs(date.offset_hour), abs(date.offset_minute))
     }

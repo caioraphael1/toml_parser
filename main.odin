@@ -27,7 +27,7 @@ import "core:encoding/json"
 import "core:fmt"
 import "base:runtime"
 import "core:mem"
-import "core:os"
+import os "core:os/os2"
 import "dates"
 
 // import "core:testing"
@@ -40,28 +40,28 @@ main :: proc() {
 
     allocator := runtime.heap_allocator()
    
-	data := make([]u8, 16 * 1024 * 1024, allocator)
+	data, _ := make([]u8, 16 * 1024 * 1024, allocator)
 	count, err_read := os.read(os.stdin, data)
 	assert(err_read == nil)
 
 	table, err := parse(string(data[:count]), "<stdin>", allocator)
 
 	if err.type != .None {
-        print_error(err, allocator)
+        _ = print_error(err, allocator)
         os.exit(1)
     }
 
 	idk, ok := marshal(table, allocator)
 	if !ok do return
 	json, _ := json.marshal(idk, allocator = allocator)
-	logln(string(json))
+	fmt.println(string(json))
 
 	// for the valid/key/quoted-unicode test
 	// for k, v in table^ {
-	//     logln(k, "=", v)
+	//     fmt.println(k, "=", v)
 	// }
 
-	deep_delete(table, allocator)
+	_ = deep_delete(table, allocator)
 	// delete_error(&err)
 
 }
@@ -75,10 +75,10 @@ main :: proc() {
 //
 //     table, err := parse(string(data), "<f>")
 //
-//     if any_of("--print-errors", ..os.args) && err.type != .None { logln(err); print_error(err) }
+//     if any_of("--print-errors", ..os.args) && err.type != .None { fmt.println(err); print_error(err) }
 //     if err.type != .None do os.exit(1)
 //
-//     logln(deep_delete(table))
+//     fmt.println(deep_delete(table))
 //     delete_error(&err)
 // }
 
@@ -109,13 +109,13 @@ marshal :: proc(input: Type, allocator: mem.Allocator) -> (result: HelpMePlease,
 		assert(false)
 	case ^List:
 		if value == nil do return result, false
-		out := make([]HelpMePlease, len(value), allocator)
+		out, _ := make([]HelpMePlease, len(value), allocator)
 		for v, i in value {out[i] = marshal(v, allocator) or_continue}
 		return out, true
 
 	case ^Table:
 		if value == nil do return result, false
-		out := make(map[string]HelpMePlease, allocator)
+		out := make_map(map[string]HelpMePlease, allocator)
 		for k, v in value {out[k] = marshal(v, allocator) or_continue}
 		return out, true
 

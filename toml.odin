@@ -9,29 +9,18 @@ import "dates"
 
 import "core:fmt"
 
-log     :: fmt.print
-logf    :: fmt.printf
-logln   :: fmt.println
-
-assertf :: fmt.assertf
-
-Builder        :: strings.Builder
-b_destroy      :: strings.builder_destroy
-b_reset        :: strings.builder_reset
-b_write_string :: strings.write_string
-b_printf       :: fmt.sbprintf
 
 // Parses the file. You can use print_error(err) for error messages.
 parse_file :: proc(filename: string, allocator: mem.Allocator) -> (section: ^Table, err: Error) {
     blob, read_err := os.read_entire_file(filename, allocator)
     if read_err != nil {
         err.type = .Bad_File
-        b_write_string(&err.more, filename)
+        strings.write_string(&err.more, filename)
         return nil, err
     }
 
     section, err = parse(string(blob), filename, allocator)
-    delete_slice(blob, allocator)
+    _ = delete_slice(blob, allocator)
     return
 }
 
@@ -51,7 +40,7 @@ deep_delete :: proc(type: Type, allocator: mem.Allocator) -> (err: runtime.Alloc
             if err != .None do return
         }
         err = delete_dynamic_array(value^)
-        if err == .None do free(value, allocator)
+        if err == .None do _ = free(value, allocator)
 
     case ^Table:
         if value == nil do break
@@ -62,7 +51,7 @@ deep_delete :: proc(type: Type, allocator: mem.Allocator) -> (err: runtime.Alloc
             if err != .None do return 
         }
         err = delete_map(value^)
-        if err == .None do free(value, allocator)
+        if err == .None do _ = free(value, allocator)
 
     case string:
         err = delete_string(value, allocator)
@@ -99,27 +88,27 @@ get_panic :: proc($T: typeid, section: ^Table, path: ..string) -> T
     assert(len(path) > 0, "You must specify at least one path str in toml.fetch_panic()!")
     section := section
     for dir in path[:len(path) - 1] {
-        assertf(dir in section, "Missing key: '%s' in table '%v'!", path, section^)
+        fmt.assertf(dir in section, "Missing key: '%s' in table '%v'!", path, section^)
         section = section[dir].(^Table)
     }
     last := path[len(path) - 1]
-    assertf(last in section, "Missing key: '%s' in table '%v'!", last, section^)
+    fmt.assertf(last in section, "Missing key: '%s' in table '%v'!", last, section^)
     return section[last].(T)
 }
 
 // Currently(2024-06-__), Odin hangs if you simply fmt.print Table
 print_table :: proc(section: ^Table, level := 0) {
-    log("{ ")
+    fmt.print("{ ")
     i := 0
     for k, v in section {
-        log(k, "= ") 
+        fmt.print(k, "= ") 
         print_value(v, level)
-        if i != len(section) - 1 do log(", ")
-        else do log(" ")
+        if i != len(section) - 1 do fmt.print(", ")
+        else do fmt.print(" ")
         i += 1
     }
-    log("}")
-    if level == 0 do logln()
+    fmt.print("}")
+    if level == 0 do fmt.println()
 }
 
 @(private="file")
@@ -128,17 +117,17 @@ print_value :: proc(v: Type, level := 0) {
     case ^Table:
         print_table(t, level + 1)
     case ^[dynamic] Type:
-        log("[ ")
+        fmt.print("[ ")
         for e, i in t {
             print_value(e, level)
-            if i != len(t) - 1 do log(", ")
-            else do log(" ")
+            if i != len(t) - 1 do fmt.print(", ")
+            else do fmt.print(" ")
         }
-        log("]")
+        fmt.print("]")
     case string:
-        logf("%q", v)
+        fmt.printf("%q", v)
     case:
-        log(v)
+        fmt.print(v)
     }
 }
 

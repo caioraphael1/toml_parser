@@ -30,7 +30,7 @@ GlobalData :: struct {
     section : ^Table,    // TOML's `[section]` table
     this    : ^Table,    // TOML's local p.a.t.h or { table = {} } table
     reps    : int,       // for halting upon infinite loops
-    aloc    : rt.Allocator // probably useless, honestly...
+    alloc   : rt.Allocator // probably useless, honestly...
 }
 
 @private // is only allocated when parse() and validate() are working.
@@ -45,7 +45,7 @@ peek :: proc(o := 0) -> string {
             make_err(.Bad_New_Line,  "The parser is stuck on an out-of-place new line.")
         } else {
             g.err.type = .Parser_Is_Stuck
-            b_printf(&g.err.more, "Token: '%s' at index: %d", g.toks[g.curr + o], g.curr + o)
+            fmt.sbprintf(&g.err.more, "Token: '%s' at index: %d", g.toks[g.curr + o], g.curr + o)
         }
         return ""
     }
@@ -72,7 +72,7 @@ next :: proc() -> string {
 parse :: proc(data: string, original_file: string, allocator: mem.Allocator) -> (tokens: ^Table, err: Error) {    
     // === TOKENIZER ===
     raw_tokens, t_err := tokenize(data, original_file, allocator)
-    defer delete_dynamic_array(raw_tokens)
+    defer _ = delete_dynamic_array(raw_tokens)
     if t_err.type != .None do return nil, t_err
     
     // === VALIDATOR ===
@@ -80,7 +80,7 @@ parse :: proc(data: string, original_file: string, allocator: mem.Allocator) -> 
     if v_err.type != .None do return tokens, v_err
 
     // === TEMP DATA ===
-    tokens = new(Table, allocator)
+    tokens, _ = new(Table, allocator)
 
     initial_data: GlobalData = {
         toks = raw_tokens[:],
@@ -90,11 +90,12 @@ parse :: proc(data: string, original_file: string, allocator: mem.Allocator) -> 
         this    = tokens,
         section = tokens,
 
-        aloc = allocator,
+        alloc = allocator,
     }
     initial_data.root.allocator = allocator
     initial_data.this.allocator = allocator
     initial_data.section.allocator = allocator
+    initial_data.err.more.buf.allocator = allocator
 
     g = &initial_data
     defer g = nil
@@ -131,7 +132,7 @@ parse_statement :: proc(allocator: mem.Allocator) {
     ok = parse_section(allocator);       if ok do return
     ok = parse_assign(allocator);        if ok do return
 
-    parse_expr(allocator) // skips orphaned expressions
+    _ = parse_expr(allocator) // skips orphaned expressions
 }
 
 // This function is for dotted.paths (stops at.the.NAME)
@@ -152,11 +153,11 @@ walk_down :: proc(parent: ^Table, allocator: mem.Allocator) {
     skip() // '.'
     
     do_not_free: bool
-    defer if !do_not_free do delete_string(name, allocator)
+    defer if !do_not_free do _ = delete_string(name, allocator)
 
     #partial switch value in parent[name] {
     case nil: 
-        g.this = new(Table, allocator)
+        g.this, _ = new(Table, allocator)
         parent[name] = g.this
         do_not_free = true
 
@@ -165,8 +166,8 @@ walk_down :: proc(parent: ^Table, allocator: mem.Allocator) {
 
     case ^List:
         if len(value^) == 0 {
-            g.this = new(Table, allocator)
-            append(value, g.this)
+            g.this, _ = new(Table, allocator)
+            _ = append(value, g.this)
 
         } else {
             table, is_table := value[len(value^) - 1].(^Table)
@@ -200,20 +201,20 @@ parse_section_list :: proc(allocator: mem.Allocator) -> bool {
     if err.type != .None do return true
 
     list   : ^List
-    result := new(Table, allocator)
+    result, _ := new(Table, allocator)
 
     if name not_in g.this {
-        list = new(List, allocator)
+        list, _ = new(List, allocator)
         g.this[name] = list
 
     } else if !is_list(g.this[name]) {
         make_err(.Key_Already_Exists, name)
     } else {
         list = g.this[name].(^List)
-        delete_string(name, allocator)
+        _ = delete_string(name, allocator)
     }
 
-    append(list, result) 
+    _ = append(list, result) 
 
     skip(2) // ']' ']'
     g.section = result
@@ -232,10 +233,10 @@ put :: proc(parent: ^Table, key: string, value: ^Table) {
     #partial switch existing in parent[key] {
     case ^Table:
         for k, v in value { existing[k] = v }
-        delete_map(value^)
+        _ = delete_map(value^)
         value^ = existing^
     case ^List:
-        append(existing, value)
+        _ = append(existing, value)
 
     case nil:
         parent[key] = value
@@ -258,7 +259,7 @@ parse_section :: proc(allocator: mem.Allocator) -> bool {
     g.err.more = err.more
     if err.type != .None do return true
 
-    result := new(Table, allocator)
+    result, _ := new(Table, allocator)
 
     put(g.this, name, result)
 
@@ -347,14 +348,14 @@ parse_float :: proc(allocator: mem.Allocator) -> (result: f64, ok: bool) {
     if peek(1) == "." {
         number := fmt.aprint({ peek(), ".", peek(2) }, "", allocator)
         cleaned, has_alloc := strings.remove_all(number, "_", allocator)
-        defer if has_alloc do delete(cleaned, allocator)
-        defer delete(number, allocator)
+        defer if has_alloc do _ = delete(cleaned, allocator)
+        defer _ = delete(number, allocator)
         skip(3)
         return strconv.parse_f64(cleaned)
 
     } else if has_e_but_not_x(peek()) {
         cleaned, has_alloc := strings.remove_all(next(), "_", allocator)
-        defer if has_alloc do delete(cleaned, allocator)
+        defer if has_alloc do _ = delete(cleaned, allocator)
         return strconv.parse_f64(cleaned)
     }
 
@@ -373,13 +374,13 @@ parse_date :: proc(allocator: mem.Allocator) -> (result: dates.Date, ok: bool) {
     if !dates.is_date_lax(peek(0)) do return
     ok = true
 
-    full: Builder
+    full: strings.Builder
     full.buf.allocator = allocator
     write_string(&full, next())
     
     // is date, time or both?
     if dates.is_date_lax(peek()) {
-        write_rune(&full, ' ')
+        _, _ = write_rune(&full, ' ')
         write_string(&full, next())
     }
 
@@ -405,7 +406,7 @@ parse_list :: proc(allocator: mem.Allocator) -> (result: ^List, ok: bool) {
     skip() // '['
     ok = true
     
-    result = new(List, allocator)
+    result, _ = new(List, allocator)
 
     for !any_of(peek(), "]", "") {
 
@@ -413,7 +414,7 @@ parse_list :: proc(allocator: mem.Allocator) -> (result: ^List, ok: bool) {
         if peek() == "\n" { g.err.line += 1; skip(); continue }
         
         element := parse_expr(allocator)
-        append(result, element) 
+        _ = append(result, element) 
     }
     
     skip() // ']'
@@ -425,7 +426,7 @@ parse_table :: proc(allocator: mem.Allocator) -> (result: ^Table, ok: bool) {
     skip() // '{'
     ok = true
 
-    result = new(Table, allocator)
+    result, _ = new(Table, allocator)
 
     temp_this, temp_section := g.this, g.section
     for !any_of(peek(), "}", "") {
@@ -434,7 +435,7 @@ parse_table :: proc(allocator: mem.Allocator) -> (result: ^Table, ok: bool) {
         if peek() == "\n" { g.err.line += 1; skip(); continue }
 
         g.this, g.section = result, result
-        parse_assign(allocator)
+        _ = parse_assign(allocator)
     }
     g.this, g.section = temp_this, temp_section
 
@@ -445,9 +446,9 @@ parse_table :: proc(allocator: mem.Allocator) -> (result: ^Table, ok: bool) {
 @(private="file")
 make_err :: proc(type: ErrorType, more_fmt: string, more_args: ..any) {
     g.err.type = type
-    // context.allocator = g.aloc
-    b_reset(&g.err.more)
-    b_printf(&g.err.more, more_fmt, ..more_args)
+    g.err.more.buf.allocator = g.alloc
+    strings.builder_reset(&g.err.more)
+    fmt.sbprintf(&g.err.more, more_fmt, ..more_args)
 }
 
 @(private="file")

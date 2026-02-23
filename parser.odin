@@ -348,14 +348,14 @@ parse_float :: proc(allocator: mem.Allocator) -> (result: f64, ok: bool) {
     if peek(1) == "." {
         number := fmt.aprint({ peek(), ".", peek(2) }, "", allocator)
         cleaned, has_alloc := strings.remove_all(number, "_", allocator)
-        defer if has_alloc do _ = delete(cleaned, allocator)
-        defer _ = delete(number, allocator)
+        defer if has_alloc do _ = delete_string(cleaned, allocator)
+        defer _ = delete_string(number, allocator)
         skip(3)
         return strconv.parse_f64(cleaned)
 
     } else if has_e_but_not_x(peek()) {
         cleaned, has_alloc := strings.remove_all(next(), "_", allocator)
-        defer if has_alloc do _ = delete(cleaned, allocator)
+        defer if has_alloc do _ = delete_string(cleaned, allocator)
         return strconv.parse_f64(cleaned)
     }
 
@@ -364,7 +364,7 @@ parse_float :: proc(allocator: mem.Allocator) -> (result: f64, ok: bool) {
 }
 
 parse_int :: proc() -> (result: i64, ok: bool) { 
-    result, ok = strconv.parse_i64(peek())
+    result, ok = strconv.parse_i64_maybe_prefixed(peek())
     if ok do skip()
     return
 }

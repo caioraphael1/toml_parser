@@ -12,7 +12,7 @@ import "core:fmt"
 
 // Parses the file. You can use print_error(err) for error messages.
 parse_file :: proc(filename: string, allocator: mem.Allocator) -> (section: ^Table, err: Error) {
-    blob, read_err := os.read_entire_file(filename, allocator)
+    blob, read_err := os.read_entire_file_from_path(filename, allocator)
     if read_err != nil {
         err.type = .Bad_File
         strings.write_string(&err.more, filename)

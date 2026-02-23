@@ -68,7 +68,7 @@ cleanup_backslashes :: proc(str: string, literal := false, allocator: mem.Alloca
                     return str, err
                 }
 
-                code, ok := strconv.parse_u64(str[i + 1: i + 5], 16)
+                code, ok := strconv.parse_u64_of_base(str[i + 1: i + 5], 16)
                 buf, bytes := toml_ucs_to_utf8(code)
 
                 if bytes == -1 {
@@ -86,7 +86,7 @@ cleanup_backslashes :: proc(str: string, literal := false, allocator: mem.Alloca
                     set_err(&err, .Bad_Unicode_Char, "'\\U' does most have hex 8 digits after it in string:", str)
                     return str, err
                 }
-                code, ok := strconv.parse_u64(str[i + 1:i + 9], 16)
+                code, ok := strconv.parse_u64_of_base(str[i + 1:i + 9], 16)
                 buf, bytes := toml_ucs_to_utf8(code)
 
                 if bytes == -1 {

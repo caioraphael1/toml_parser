@@ -57,7 +57,7 @@ print_error :: proc(err: Error, allocator: mem.Allocator) -> (fatal: bool) {
     message, fatal = format_error(&err, allocator)
     if message != "" {
         fmt.printf("[TOML ERROR] %s", message) 
-        _ = delete(message, allocator)
+        _ = delete_string(message, allocator)
     }
     return fatal
 }
@@ -89,7 +89,7 @@ format_error :: proc(err: ^Error, allocator: mem.Allocator) -> (message: string,
         .Unexpected_Token   = "Found a token that should not be there",
     }
 
-    err.formatted.buf, _ = make(type_of(err.formatted.buf), allocator)
+    err.formatted.buf, _ = make_dynamic_array(type_of(err.formatted.buf), allocator)
     fmt.sbprintf(&err.formatted, "%s:%d %s! %s\n", err.file, err.line + 1, descriptions[err.type], err.more.buf[:])
 
     return string(err.formatted.buf[:]), true

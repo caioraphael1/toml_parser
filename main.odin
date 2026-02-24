@@ -1,6 +1,4 @@
 #+private
-package toml
-
 /*
 
     This file is for testing. It should be ignored by library users.

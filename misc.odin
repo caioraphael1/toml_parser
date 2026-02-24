@@ -1,5 +1,3 @@
-package toml
-
 import "core:fmt"
 import "core:mem"
 import "core:strings"
@@ -42,7 +40,6 @@ cleanup_backslashes :: proc(str: string, literal := false, allocator: mem.Alloca
         fmt.sbprintf(&err.more, more_fmt, ..more_args)
     }
 
-    using strings
     b: strings.Builder
     b.buf.allocator = allocator
     // defer builder_destroy(&b) // don't need to, shouldn't even free the original str here
@@ -78,7 +75,7 @@ cleanup_backslashes :: proc(str: string, literal := false, allocator: mem.Alloca
 
                 parsed_rune, _ := utf8.decode_rune_in_bytes(buf[:bytes])
                 
-                _, _ = write_rune(&b, parsed_rune)
+                _, _ = strings.write_rune(&b, parsed_rune)
                 to_skip = 4
 
             case 'U': // for \UXXXXXXXX
@@ -96,21 +93,21 @@ cleanup_backslashes :: proc(str: string, literal := false, allocator: mem.Alloca
                 
                 parsed_rune, _ := utf8.decode_rune_in_bytes(buf[:bytes])
                 
-                _, _ = write_rune(&b, parsed_rune)
+                _, _ = strings.write_rune(&b, parsed_rune)
                 to_skip = 8
 
             case 'x':
                 set_err(&err, .Bad_Unicode_Char, "\\xXX is not in the spec, you can just use \\u00XX instead.")
                 return str, err
 
-            case 'n' : write_byte(&b, '\n')
-            case 'r' : write_byte(&b, '\r')
-            case 't' : write_byte(&b, '\t')
-            case 'b' : write_byte(&b, '\b')
-            case 'f' : write_byte(&b, '\f')
-            case '\\': write_byte(&b, '\\')
-            case '"' : write_byte(&b, '"')
-            case '\'': write_byte(&b, '\'')
+            case 'n' : strings.write_byte(&b, '\n')
+            case 'r' : strings.write_byte(&b, '\r')
+            case 't' : strings.write_byte(&b, '\t')
+            case 'b' : strings.write_byte(&b, '\b')
+            case 'f' : strings.write_byte(&b, '\f')
+            case '\\': strings.write_byte(&b, '\\')
+            case '"' : strings.write_byte(&b, '"')
+            case '\'': strings.write_byte(&b, '\'')
             case ' ', '\t', '\r', '\n': 
                 // if (r == ' ' || r == '\t') && len(str) > i + 1 && (str[i + 1] != '\n' || str[i + 1] != '\r') {
                 //     err.type = .Bad_Unicode_Char
@@ -131,7 +128,7 @@ cleanup_backslashes :: proc(str: string, literal := false, allocator: mem.Alloca
                 return str, err
             }
         } else if r != '\\' {
-            _, _ = write_rune(&b, r)
+            _, _ = strings.write_rune(&b, r)
         } else {
             escaped = true
         }
@@ -140,7 +137,7 @@ cleanup_backslashes :: proc(str: string, literal := false, allocator: mem.Alloca
     }
     _ = delete_string(str, allocator)
     defer strings.builder_destroy(&b) // you can't free a builder that has been cast to string
-    b_clone, _ := strings.clone(to_string(b), allocator)
+    b_clone, _ := strings.clone(strings.to_string(b), allocator)
     return b_clone, err
 }
 

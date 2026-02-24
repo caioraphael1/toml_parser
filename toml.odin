@@ -1,5 +1,3 @@
-package toml
-
 import "core:strings"
 import "core:mem"
 import os "core:os/os2"

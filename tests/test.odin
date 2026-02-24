@@ -1,5 +1,3 @@
-package tests
-
 import "core:slice"
 import "core:testing"
 

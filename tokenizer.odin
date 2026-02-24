@@ -1,5 +1,3 @@
-package toml
-
 import "core:fmt"
 
 import "core:mem"

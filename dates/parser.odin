@@ -1,5 +1,3 @@
-package dates
-
 import "core:mem"
 import "core:fmt"
 import "core:math"
@@ -131,15 +129,14 @@ to_string :: proc(date: Date, time_sep := ' ', allocator: mem.Allocator) -> (out
     date := date
 
     {
-        using date
-        if !between(year, 0, 9999) do return "", .YEAR_OUT_OF_BOUNDS
-        if !between(month, 0, 12) do return "", .MONTH_OUT_OF_BOUNDS
-        if !between(day, 0, days_in_month(year, month)) do return "", .DAY_OUT_OF_BOUNDS
-        if !between(hour, 0, 23) do return "", .HOUR_OUT_OF_BOUNDS
-        if !between(minute, 0, 59) do return "", .MINUTE_OUT_OF_BOUNDS
-        if !between(int(second), 0, 60) do return "", .SECOND_OUT_OF_BOUNDS
-        if !between(offset_hour, -23, 23) do return "", .OFFSET_HOUR_OUT_OF_BOUNDS
-        if !between(offset_minute, -59, 59) do return "", .OFFSET_MINUTE_OUT_OF_BOUNDS
+        if !between(date.year, 0, 9999) do return "", .YEAR_OUT_OF_BOUNDS
+        if !between(date.month, 0, 12) do return "", .MONTH_OUT_OF_BOUNDS
+        if !between(date.day, 0, days_in_month(date.year, date.month)) do return "", .DAY_OUT_OF_BOUNDS
+        if !between(date.hour, 0, 23) do return "", .HOUR_OUT_OF_BOUNDS
+        if !between(date.minute, 0, 59) do return "", .MINUTE_OUT_OF_BOUNDS
+        if !between(int(date.second), 0, 60) do return "", .SECOND_OUT_OF_BOUNDS
+        if !between(date.offset_hour, -23, 23) do return "", .OFFSET_HOUR_OUT_OF_BOUNDS
+        if !between(date.offset_minute, -59, 59) do return "", .OFFSET_MINUTE_OUT_OF_BOUNDS
     }
 
     b: strings.Builder
@@ -169,15 +166,14 @@ to_string :: proc(date: Date, time_sep := ' ', allocator: mem.Allocator) -> (out
 partial_date_to_string :: proc(date: Date, time_sep := ' ', allocator: mem.Allocator) -> (out: string, err: DateError) {
     date := date
     {
-        using date
-        if !between(year, 0, 9999) do return "", .YEAR_OUT_OF_BOUNDS
-        if !between(month, 0, 12) do return "", .MONTH_OUT_OF_BOUNDS
-        if !between(day, 0, days_in_month(year, month)) do return "", .DAY_OUT_OF_BOUNDS
-        if !between(hour, 0, 23) do return "", .HOUR_OUT_OF_BOUNDS
-        if !between(minute, 0, 59) do return "", .MINUTE_OUT_OF_BOUNDS
-        if !between(int(second), 0, 60) do return "", .SECOND_OUT_OF_BOUNDS
-        if !between(offset_hour, -23, 23) do return "", .OFFSET_HOUR_OUT_OF_BOUNDS
-        if !between(offset_minute, -59, 59) do return "", .OFFSET_MINUTE_OUT_OF_BOUNDS
+        if !between(date.year, 0, 9999) do return "", .YEAR_OUT_OF_BOUNDS
+        if !between(date.month, 0, 12) do return "", .MONTH_OUT_OF_BOUNDS
+        if !between(date.day, 0, days_in_month(date.year, date.month)) do return "", .DAY_OUT_OF_BOUNDS
+        if !between(date.hour, 0, 23) do return "", .HOUR_OUT_OF_BOUNDS
+        if !between(date.minute, 0, 59) do return "", .MINUTE_OUT_OF_BOUNDS
+        if !between(int(date.second), 0, 60) do return "", .SECOND_OUT_OF_BOUNDS
+        if !between(date.offset_hour, -23, 23) do return "", .OFFSET_HOUR_OUT_OF_BOUNDS
+        if !between(date.offset_minute, -59, 59) do return "", .OFFSET_MINUTE_OUT_OF_BOUNDS
     }
 
     b: strings.Builder

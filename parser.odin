@@ -1,5 +1,3 @@
-package toml
-
 import "core:strconv"
 import "core:fmt"
 import "core:strings"
@@ -370,33 +368,32 @@ parse_int :: proc() -> (result: i64, ok: bool) {
 }
 
 parse_date :: proc(allocator: mem.Allocator) -> (result: dates.Date, ok: bool) { 
-    using strings
     if !dates.is_date_lax(peek(0)) do return
     ok = true
 
     full: strings.Builder
     full.buf.allocator = allocator
-    write_string(&full, next())
+    strings.write_string(&full, next())
     
     // is date, time or both?
     if dates.is_date_lax(peek()) {
-        _, _ = write_rune(&full, ' ')
-        write_string(&full, next())
+        _, _ = strings.write_rune(&full, ' ')
+        strings.write_string(&full, next())
     }
 
     if peek() == "." {
-        write_byte(&full, '.'); skip()
-        write_string(&full, next())
+        strings.write_byte(&full, '.'); skip()
+        strings.write_string(&full, next())
     }
 
     err: dates.DateError
-    result, err = dates.from_string(to_string(full))
+    result, err = dates.from_string(strings.to_string(full))
     if err != .NONE {
-        make_err(.Bad_Date, "Received error: %v by parsing: '%s' as date\n", err, to_string(full))
+        make_err(.Bad_Date, "Received error: %v by parsing: '%s' as date\n", err, strings.to_string(full))
         return
     }
 
-    builder_destroy(&full)
+    strings.builder_destroy(&full)
     return
 
 }

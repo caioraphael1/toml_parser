@@ -1,5 +1,3 @@
-package toml
-
 import "base:runtime"
 import "core:fmt"
 import "core:mem"

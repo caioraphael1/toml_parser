@@ -1,6 +1,6 @@
 import "core:strings"
 import "core:mem"
-import os "core:os/os2"
+import "core:os"
 import "base:intrinsics"
 import "base:runtime"
 import "dates"

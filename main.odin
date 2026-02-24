@@ -25,7 +25,7 @@ import "core:encoding/json"
 import "core:fmt"
 import "base:runtime"
 import "core:mem"
-import os "core:os/os2"
+import "core:os"
 import "dates"
 
 // import "core:testing"

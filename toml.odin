@@ -1,11 +1,16 @@
-import "core:strings"
-import "core:mem"
-import "core:os"
+import "base:internal"
 import "base:intrinsics"
-import "base:runtime"
-import "dates"
+import "base:mem"
+import "base:slice"
+import "base:dyn_array"
+import "base:maps"
+import "base:strings"
 
 import "core:fmt"
+import "core:os"
+import "core:strings_tools"
+
+import "dates"
 
 
 // Parses the file. You can use print_error(err) for error messages.
@@ -13,12 +18,12 @@ parse_file :: proc(filename: string, allocator: mem.Allocator) -> (section: ^Tab
     blob, read_err := os.read_entire_file_from_path(filename, allocator)
     if read_err != nil {
         err.type = .Bad_File
-        strings.write_string(&err.more, filename)
+        strings_tools.write_string(&err.more, filename)
         return nil, err
     }
 
     section, err = parse(string(blob), filename, allocator)
-    _ = delete_slice(blob, allocator)
+    _ = slice.delete(blob, allocator)
     return
 }
 
@@ -29,7 +34,7 @@ parse_data :: proc(data: []u8, original_filename := "untitled data", allocator: 
 
 // Frees all of the memory allocated by the parser for a particular type
 // It is recursive, so you can just give it the root Table.
-deep_delete :: proc(type: Type, allocator: mem.Allocator) -> (err: runtime.Allocator_Error) {
+deep_delete :: proc(type: Type, allocator: mem.Allocator) -> (err: mem.Allocator_Error) {
     #partial switch value in type {
     case ^List:
         if value == nil do break
@@ -37,22 +42,22 @@ deep_delete :: proc(type: Type, allocator: mem.Allocator) -> (err: runtime.Alloc
             err = deep_delete(item, allocator)
             if err != .None do return
         }
-        err = delete_dynamic_array(value^)
-        if err == .None do _ = free(value, allocator)
+        err = dyn_array.delete(value^)
+        if err == .None do _ = mem.free(value, allocator)
 
     case ^Table:
         if value == nil do break
         for k, &v in value { 
-            err = delete_string(k, allocator)
+            err = strings.string_delete(k, allocator)
             if err != .None do return 
             err = deep_delete(v, allocator)
             if err != .None do return 
         }
-        err = delete_map(value^)
-        if err == .None do _ = free(value, allocator)
+        err = maps.delete(value^)
+        if err == .None do _ = mem.free(value, allocator)
 
     case string:
-        err = delete_string(value, allocator)
+        err = strings.string_delete(value, allocator)
     }
     return
 }
@@ -62,7 +67,7 @@ deep_delete :: proc(type: Type, allocator: mem.Allocator) -> (err: runtime.Alloc
 get :: proc($T: typeid, section: ^Table, path: ..string) -> (val: T, ok: bool)
     where intrinsics.type_is_variant_of(Type, T)
 {
-    assert(len(path) > 0, "You must specify at least one path str in toml.fetch()!")
+    internal.assert(len(path) > 0, "You must specify at least one path str in toml.fetch()!")
 	if section == nil {
 		return val, false
 	}
@@ -83,7 +88,7 @@ get :: proc($T: typeid, section: ^Table, path: ..string) -> (val: T, ok: bool)
 get_panic :: proc($T: typeid, section: ^Table, path: ..string) -> T
     where intrinsics.type_is_variant_of(Type, T)
 {
-    assert(len(path) > 0, "You must specify at least one path str in toml.fetch_panic()!")
+    internal.assert(len(path) > 0, "You must specify at least one path str in toml.fetch_panic()!")
     section := section
     for dir in path[:len(path) - 1] {
         fmt.assertf(dir in section, "Missing key: '%s' in table '%v'!", path, section^)

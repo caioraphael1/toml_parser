@@ -1,8 +1,12 @@
+import "base:internal"
+import "base:strings"
+import "base:mem"
+import "base:dyn_array"
+import "base:maps"
+
+import "core:strings_tools"
 import "core:strconv"
 import "core:fmt"
-import "core:strings"
-import "core:mem"
-import rt "base:runtime"
 
 import "dates"
 
@@ -28,7 +32,7 @@ GlobalData :: struct {
     section : ^Table,    // TOML's `[section]` table
     this    : ^Table,    // TOML's local p.a.t.h or { table = {} } table
     reps    : int,       // for halting upon infinite loops
-    alloc   : rt.Allocator // probably useless, honestly...
+    alloc   : mem.Allocator // probably useless, honestly...
 }
 
 @private // is only allocated when parse() and validate() are working.
@@ -56,7 +60,7 @@ peek :: proc(o := 0) -> string {
 // skips by one or more tokens, the parser & validator CANNOT go back, 
 @private // since my solution to the halting problem may not work then.
 skip :: proc(o := 1) {
-    assert(o >= 0)
+    internal.assert(o >= 0)
     g.curr += o
     if o != 0 do g.reps = 0
 }             
@@ -70,7 +74,7 @@ next :: proc() -> string {
 parse :: proc(data: string, original_file: string, allocator: mem.Allocator) -> (tokens: ^Table, err: Error) {    
     // === TOKENIZER ===
     raw_tokens, t_err := tokenize(data, original_file, allocator)
-    defer _ = delete_dynamic_array(raw_tokens)
+    defer _ = dyn_array.delete(raw_tokens)
     if t_err.type != .None do return nil, t_err
     
     // === VALIDATOR ===
@@ -78,7 +82,7 @@ parse :: proc(data: string, original_file: string, allocator: mem.Allocator) -> 
     if v_err.type != .None do return tokens, v_err
 
     // === TEMP DATA ===
-    tokens, _ = new(Table, allocator)
+    tokens, _ = mem.new(Table, allocator)
 
     initial_data: GlobalData = {
         toks = raw_tokens[:],
@@ -151,11 +155,11 @@ walk_down :: proc(parent: ^Table, allocator: mem.Allocator) {
     skip() // '.'
     
     do_not_free: bool
-    defer if !do_not_free do _ = delete_string(name, allocator)
+    defer if !do_not_free do _ = strings.string_delete(name, allocator)
 
     #partial switch value in parent[name] {
     case nil: 
-        g.this, _ = new(Table, allocator)
+        g.this, _ = mem.new(Table, allocator)
         parent[name] = g.this
         do_not_free = true
 
@@ -164,8 +168,8 @@ walk_down :: proc(parent: ^Table, allocator: mem.Allocator) {
 
     case ^List:
         if len(value^) == 0 {
-            g.this, _ = new(Table, allocator)
-            _ = append(value, g.this)
+            g.this, _ = mem.new(Table, allocator)
+            _ = dyn_array.append(value, g.this)
 
         } else {
             table, is_table := value[len(value^) - 1].(^Table)
@@ -199,20 +203,20 @@ parse_section_list :: proc(allocator: mem.Allocator) -> bool {
     if err.type != .None do return true
 
     list   : ^List
-    result, _ := new(Table, allocator)
+    result, _ := mem.new(Table, allocator)
 
     if name not_in g.this {
-        list, _ = new(List, allocator)
+        list, _ = mem.new(List, allocator)
         g.this[name] = list
 
     } else if !is_list(g.this[name]) {
         make_err(.Key_Already_Exists, name)
     } else {
         list = g.this[name].(^List)
-        _ = delete_string(name, allocator)
+        _ = strings.string_delete(name, allocator)
     }
 
-    _ = append(list, result) 
+    _ = dyn_array.append(list, result) 
 
     skip(2) // ']' ']'
     g.section = result
@@ -231,10 +235,10 @@ put :: proc(parent: ^Table, key: string, value: ^Table) {
     #partial switch existing in parent[key] {
     case ^Table:
         for k, v in value { existing[k] = v }
-        _ = delete_map(value^)
+        _ = maps.delete(value^)
         value^ = existing^
     case ^List:
-        _ = append(existing, value)
+        _ = dyn_array.append(existing, value)
 
     case nil:
         parent[key] = value
@@ -257,7 +261,7 @@ parse_section :: proc(allocator: mem.Allocator) -> bool {
     g.err.more = err.more
     if err.type != .None do return true
 
-    result, _ := new(Table, allocator)
+    result, _ := mem.new(Table, allocator)
 
     put(g.this, name, result)
 
@@ -345,15 +349,15 @@ parse_float :: proc(allocator: mem.Allocator) -> (result: f64, ok: bool) {
 
     if peek(1) == "." {
         number := fmt.aprint({ peek(), ".", peek(2) }, "", allocator)
-        cleaned, has_alloc := strings.remove_all(number, "_", allocator)
-        defer if has_alloc do _ = delete_string(cleaned, allocator)
-        defer _ = delete_string(number, allocator)
+        cleaned, has_alloc := strings_tools.remove_all(number, "_", allocator)
+        defer if has_alloc do _ = strings.string_delete(cleaned, allocator)
+        defer _ = strings.string_delete(number, allocator)
         skip(3)
         return strconv.parse_f64(cleaned)
 
     } else if has_e_but_not_x(peek()) {
-        cleaned, has_alloc := strings.remove_all(next(), "_", allocator)
-        defer if has_alloc do _ = delete_string(cleaned, allocator)
+        cleaned, has_alloc := strings_tools.remove_all(next(), "_", allocator)
+        defer if has_alloc do _ = strings.string_delete(cleaned, allocator)
         return strconv.parse_f64(cleaned)
     }
 
@@ -371,29 +375,29 @@ parse_date :: proc(allocator: mem.Allocator) -> (result: dates.Date, ok: bool) {
     if !dates.is_date_lax(peek(0)) do return
     ok = true
 
-    full: strings.Builder
+    full: strings_tools.Builder
     full.buf.allocator = allocator
-    strings.write_string(&full, next())
+    strings_tools.write_string(&full, next())
     
     // is date, time or both?
     if dates.is_date_lax(peek()) {
-        _, _ = strings.write_rune(&full, ' ')
-        strings.write_string(&full, next())
+        _, _ = strings_tools.write_rune(&full, ' ')
+        strings_tools.write_string(&full, next())
     }
 
     if peek() == "." {
-        strings.write_byte(&full, '.'); skip()
-        strings.write_string(&full, next())
+        strings_tools.write_byte(&full, '.'); skip()
+        strings_tools.write_string(&full, next())
     }
 
     err: dates.DateError
-    result, err = dates.from_string(strings.to_string(full))
+    result, err = dates.from_string(strings_tools.to_string(full))
     if err != .NONE {
-        make_err(.Bad_Date, "Received error: %v by parsing: '%s' as date\n", err, strings.to_string(full))
+        make_err(.Bad_Date, "Received error: %v by parsing: '%s' as date\n", err, strings_tools.to_string(full))
         return
     }
 
-    strings.builder_destroy(&full)
+    strings_tools.builder_destroy(&full)
     return
 
 }
@@ -403,7 +407,7 @@ parse_list :: proc(allocator: mem.Allocator) -> (result: ^List, ok: bool) {
     skip() // '['
     ok = true
     
-    result, _ = new(List, allocator)
+    result, _ = mem.new(List, allocator)
 
     for !any_of(peek(), "]", "") {
 
@@ -411,7 +415,7 @@ parse_list :: proc(allocator: mem.Allocator) -> (result: ^List, ok: bool) {
         if peek() == "\n" { g.err.line += 1; skip(); continue }
         
         element := parse_expr(allocator)
-        _ = append(result, element) 
+        _ = dyn_array.append(result, element) 
     }
     
     skip() // ']'
@@ -423,7 +427,7 @@ parse_table :: proc(allocator: mem.Allocator) -> (result: ^Table, ok: bool) {
     skip() // '{'
     ok = true
 
-    result, _ = new(Table, allocator)
+    result, _ = mem.new(Table, allocator)
 
     temp_this, temp_section := g.this, g.section
     for !any_of(peek(), "}", "") {
@@ -444,7 +448,7 @@ parse_table :: proc(allocator: mem.Allocator) -> (result: ^Table, ok: bool) {
 make_err :: proc(type: ErrorType, more_fmt: string, more_args: ..any) {
     g.err.type = type
     g.err.more.buf.allocator = g.alloc
-    strings.builder_reset(&g.err.more)
+    strings_tools.builder_reset(&g.err.more)
     fmt.sbprintf(&g.err.more, more_fmt, ..more_args)
 }
 

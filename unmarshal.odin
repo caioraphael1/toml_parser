@@ -1,10 +1,15 @@
+import "base:internal"
 import "base:intrinsics"
-import "base:runtime"
+import "base:mem"
+import "base:slice"
+import "base:dyn_array"
+import "base:maps"
+import "base:strings"
+
 import "core:fmt"
-import "core:mem"
+import "core:strings_tools"
 import "core:reflect"
 import "core:strconv"
-import "core:strings"
 import "dates"
 
 Unmarshal_Error :: enum {
@@ -135,13 +140,13 @@ assign_int :: proc(val: any, i: $T) -> bool {
     case Type:
         dst = i64(i)
     case:
-        is_bit_set_different_endian_to_platform :: proc(ti: ^runtime.Type_Info) -> bool {
+        is_bit_set_different_endian_to_platform :: proc(ti: ^internal.Type_Info) -> bool {
             if ti == nil {
                 return false
             }
-            t := runtime.type_info_base(ti)
+            t := internal.type_info_base(ti)
             #partial switch info in t.variant {
-            case runtime.Type_Info_Integer:
+            case internal.Type_Info_Integer:
                 switch info.endianness {
                 case .Platform:
                     return false
@@ -155,7 +160,7 @@ assign_int :: proc(val: any, i: $T) -> bool {
         }
 
         ti := type_info_of(v.id)
-        if info, ok := ti.variant.(runtime.Type_Info_Bit_Set); ok {
+        if info, ok := ti.variant.(internal.Type_Info_Bit_Set); ok {
             do_byte_swap := is_bit_set_different_endian_to_platform(info.underlying)
             switch ti.size * 8 {
             case 0: // no-op.
@@ -172,7 +177,7 @@ assign_int :: proc(val: any, i: $T) -> bool {
                 x := (^u64)(v.data)
                 x^ = do_byte_swap ? intrinsics.byte_swap(u64(i)) : u64(i)
             case:
-                panic("unknown bit_size size")
+                internal.panic("unknown bit_size size")
             }
             return true
         }
@@ -283,7 +288,7 @@ unmarshal_string_token :: proc(val: any, str: string, ti: ^reflect.Type_Info, al
         return true
     case cstring:
         if str == "" {
-            cstr, cstr_err := strings.clone_to_cstring(str, allocator)
+            cstr, cstr_err := strings.cstring_clone_from_string(str, allocator)
             if cstr_err != .None do return false
             v = cstr
         } else {
@@ -406,7 +411,7 @@ unmarshal_value :: proc(dest: any, value: Type, allocator: mem.Allocator) -> (er
 @(private)
 toml_name_from_tag_value :: proc(value: string) -> (toml_name, extra: string) {
     toml_name = value
-    if comma_idx := strings.index_byte(toml_name, ','); comma_idx >= 0 {
+    if comma_idx := strings_tools.index_byte(toml_name, ','); comma_idx >= 0 {
         toml_name = toml_name[:comma_idx]
         extra = value[1 + comma_idx:]
     }
@@ -438,8 +443,8 @@ unmarshal_list :: proc(dest: any, list: ^List, allocator: mem.Allocator) -> Unma
 
     #partial switch t in ti.variant {
     case reflect.Type_Info_Slice:
-        raw := cast(^mem.Raw_Slice)dest.data
-        data, data_ok := mem.alloc_bytes(t.elem.size * len(list), t.elem.align, list.allocator)
+        raw := cast(^slice.Raw_Slice)dest.data
+        data, data_ok := mem.alloc(t.elem.size * len(list), t.elem.align, list.allocator)
         if data_ok != .None {
             return .Out_Of_Memory
         }
@@ -449,8 +454,8 @@ unmarshal_list :: proc(dest: any, list: ^List, allocator: mem.Allocator) -> Unma
         return assign_list(raw.data, t.elem, list, allocator)
 
     case reflect.Type_Info_Dynamic_Array:
-        raw := cast(^mem.Raw_Dynamic_Array)dest.data
-        data, data_ok := mem.alloc_bytes(t.elem.size * len(list), t.elem.align, list.allocator)
+        raw := cast(^dyn_array.Raw_Dynamic_Array)dest.data
+        data, data_ok := mem.alloc(t.elem.size * len(list), t.elem.align, list.allocator)
         if data_ok != .None {
             return .Out_Of_Memory
         }
@@ -584,12 +589,12 @@ unmarshal_table :: proc(v: any, table: ^Table, allocator: mem.Allocator) -> Unma
         if !reflect.is_string(t.key) && !reflect.is_integer(t.key) {
             return .Unsupported_Type
         }
-        raw_map := cast(^mem.Raw_Map)v.data
+        raw_map := cast(^maps.Raw_Map)v.data
         if raw_map.allocator.procedure == nil {
             raw_map.allocator = table.allocator
         }
 
-        elem_backing, elem_backing_err := mem.alloc_bytes(
+        elem_backing, elem_backing_err := mem.alloc(
             t.value.size,
             t.value.align,
             table.allocator,
@@ -597,7 +602,7 @@ unmarshal_table :: proc(v: any, table: ^Table, allocator: mem.Allocator) -> Unma
         if elem_backing_err != .None {
             return .Out_Of_Memory
         }
-        defer _ = delete_slice(elem_backing, table.allocator)
+        defer _ = slice.delete(elem_backing, table.allocator)
 
         map_backing_value := any {
             data = raw_data(elem_backing),
@@ -605,28 +610,28 @@ unmarshal_table :: proc(v: any, table: ^Table, allocator: mem.Allocator) -> Unma
         }
 
         for key, value in table {
-            mem.zero_slice(elem_backing)
+            slice.zero(elem_backing)
             if err := unmarshal_value(map_backing_value, value, allocator); err != nil {
-                _ = delete_string(key, table.allocator)
+                _ = strings.string_delete(key, table.allocator)
                 return err
             }
 
 
             key_ptr := any(key).data
 
-            set_ptr := runtime.__dynamic_map_set_without_hash(
+            set_ptr := maps.raw_map_dynamic_set_without_hash(
                 raw_map,
                 t.map_info,
                 key_ptr,
                 map_backing_value.data,
             )
             if set_ptr == nil {
-                _ = delete_string(key, table.allocator)
+                _ = strings.string_delete(key, table.allocator)
             }
 
             // there's no need to keep string value on the heap, since it was copied into map
             if reflect.is_integer(t.key) {
-                _ = delete_string(key, table.allocator)
+                _ = strings.string_delete(key, table.allocator)
             }
         }
 

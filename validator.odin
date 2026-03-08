@@ -1,8 +1,10 @@
-import "base:runtime"
-import "core:fmt"
-import "core:mem"
+import "base:internal"
+import "base:mem"
+import "base:dyn_array"
+import "base:strings"
 
-import "core:strings"
+import "core:fmt"
+import "core:strings_tools"
 
 ErrorType :: enum {
     None,
@@ -34,17 +36,17 @@ Error :: struct {
     type: ErrorType,
     line: int,    
     file: string,
-    more: strings.Builder,
-    formatted: strings.Builder,
+    more: strings_tools.Builder,
+    formatted: strings_tools.Builder,
 }
 
 // The filename is not freed, since it is only sliced 
 delete_error :: proc(err: ^Error) {
     if err.type != .None { 
-        strings.builder_destroy(&err.more)
+        strings_tools.builder_destroy(&err.more)
     }
     if len(err.formatted.buf) > 0 {
-        strings.builder_destroy(&err.formatted)
+        strings_tools.builder_destroy(&err.formatted)
     }
 }
 
@@ -55,7 +57,7 @@ print_error :: proc(err: Error, allocator: mem.Allocator) -> (fatal: bool) {
     message, fatal = format_error(&err, allocator)
     if message != "" {
         fmt.printf("[TOML ERROR] %s", message) 
-        _ = delete_string(message, allocator)
+        _ = strings.string_delete(message, allocator)
     }
     return fatal
 }
@@ -87,7 +89,7 @@ format_error :: proc(err: ^Error, allocator: mem.Allocator) -> (message: string,
         .Unexpected_Token   = "Found a token that should not be there",
     }
 
-    err.formatted.buf, _ = make_dynamic_array(type_of(err.formatted.buf), allocator)
+    err.formatted.buf = dyn_array.create(type_of(err.formatted.buf), allocator)
     fmt.sbprintf(&err.formatted, "%s:%d %s! %s\n", err.file, err.line + 1, descriptions[err.type], err.more.buf[:])
 
     return string(err.formatted.buf[:]), true
@@ -469,7 +471,7 @@ validate_inline_table :: proc() -> bool { //{{{
 make_err :: proc(type: ErrorType, more_fmt: string, more_args: ..any) {
     g.err.type = type
     g.err.more.buf.allocator = g.alloc
-    strings.builder_reset(&g.err.more)
+    strings_tools.builder_reset(&g.err.more)
     fmt.sbprintf(&g.err.more, more_fmt, ..more_args)
 }
 

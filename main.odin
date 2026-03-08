@@ -21,10 +21,14 @@
 
 */
 
+import "base:internal"
+import "base:mem"
+import "base:mem/allocators"
+import "base:slice"
+import "base:maps"
+
 import "core:encoding/json"
 import "core:fmt"
-import "base:runtime"
-import "core:mem"
 import "core:os"
 import "dates"
 
@@ -36,11 +40,11 @@ main :: proc() {
 
     // parse_file("testing/current.toml")
 
-    allocator := runtime.heap_allocator()
+    allocator := allocators.heap_allocator()
    
-    data, _ := make_slice([]u8, 16 * 1024 * 1024, allocator)
+    data, _ := slice.create([]u8, 16 * 1024 * 1024, allocator)
     count, err_read := os.read(os.stdin, data)
-    assert(err_read == nil)
+    internal.assert(err_read == nil)
 
     table, err := parse(string(data[:count]), "<stdin>", allocator)
 
@@ -104,16 +108,16 @@ marshal :: proc(input: Type, allocator: mem.Allocator) -> (result: HelpMePlease,
 
     switch value in input {
     case nil:
-        assert(false)
+        internal.assert(false)
     case ^List:
         if value == nil do return result, false
-        out, _ := make_slice([]HelpMePlease, len(value), allocator)
+        out, _ := slice.create([]HelpMePlease, len(value), allocator)
         for v, i in value {out[i] = marshal(v, allocator) or_continue}
         return out, true
 
     case ^Table:
         if value == nil do return result, false
-        out := make_map(map[string]HelpMePlease, allocator)
+        out := maps.create(map[string]HelpMePlease, allocator)
         for k, v in value {out[k] = marshal(v, allocator) or_continue}
         return out, true
 

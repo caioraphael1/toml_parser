@@ -1,4 +1,4 @@
-import "core:slice"
+import "base:slice"
 import "core:testing"
 
 import toml ".."
@@ -33,8 +33,8 @@ unmarshal_primitives_to_struct :: proc(t: ^testing.T) {
 	}
 
 	test: Test
-	testing.expect(t, toml.unmarshal_string(test_toml, &test, runtime.temp_allocator) == .None)
-	defer _ = free_all(runtime.temp_allocator)
+	testing.expect(t, toml.unmarshal_string(test_toml, &test, allocators.temp_allocator) == .None)
+	defer _ = mem.free_all(allocators.temp_allocator)
 
 	testing.expect_value(t, test.integer, 22)
 	testing.expect_value(t, test.decimal, 12.4)
@@ -62,8 +62,8 @@ unmarshal_primitives_to_map :: proc(t: ^testing.T) {
 
 
 	test: map[string]toml.Type
-	testing.expect(t, toml.unmarshal_string(test_toml, &test, runtime.temp_allocator) == .None)
-	defer _ = free_all(runtime.temp_allocator)
+	testing.expect(t, toml.unmarshal_string(test_toml, &test, allocators.temp_allocator) == .None)
+	defer _ = mem.free_all(allocators.temp_allocator)
 
 	testing.expect_value(t, test["integer"], 22)
 	testing.expect_value(t, test["decimal"], 12.4)
@@ -108,8 +108,8 @@ unmarshal_subtables_to_struct :: proc(t: ^testing.T) {
 	}
 
 	test: Test
-	testing.expect(t, toml.unmarshal_string(test_toml, &test, runtime.temp_allocator) == .None)
-	defer _ = free_all(runtime.temp_allocator)
+	testing.expect(t, toml.unmarshal_string(test_toml, &test, allocators.temp_allocator) == .None)
+	defer _ = mem.free_all(allocators.temp_allocator)
 
 	testing.expect_value(t, test.table1.x, 1)
 	testing.expect_value(t, test.table2.x, 2)
@@ -131,8 +131,8 @@ unmarshal_subtables_to_map :: proc(t: ^testing.T) {
 
 
 	test: map[string]toml.Type
-	testing.expect(t, toml.unmarshal_string(test_toml, &test, runtime.temp_allocator) == .None)
-	defer _ = free_all(runtime.temp_allocator)
+	testing.expect(t, toml.unmarshal_string(test_toml, &test, allocators.temp_allocator) == .None)
+	defer _ = mem.free_all(allocators.temp_allocator)
 
 	table1 := test["table1"].(^toml.Table)
 	table1_x := table1["x"]
@@ -175,8 +175,8 @@ unmarshal_lists_to_struct :: proc(t: ^testing.T) {
 	}
 
 	test: Test
-	testing.expect(t, toml.unmarshal_string(test_toml, &test, runtime.temp_allocator) == .None)
-	defer _ = free_all(runtime.temp_allocator)
+	testing.expect(t, toml.unmarshal_string(test_toml, &test, allocators.temp_allocator) == .None)
+	defer _ = mem.free_all(allocators.temp_allocator)
 
 	expected_arr := []int{1, 2, 3, 4}
 
@@ -205,21 +205,21 @@ unmarshal_lists_to_map :: proc(t: ^testing.T) {
 		}
 	}
 
-	defer _ = free_all(runtime.temp_allocator)
+	defer _ = mem.free_all(allocators.temp_allocator)
 
 	test_slice: map[string][]int
 	testing.expect(
 		t,
-		toml.unmarshal_string(test_toml, &test_slice, runtime.temp_allocator) == .None,
+		toml.unmarshal_string(test_toml, &test_slice, allocators.temp_allocator) == .None,
 	)
 
 	test_arr: map[string][4]int
-	testing.expect(t, toml.unmarshal_string(test_toml, &test_arr, runtime.temp_allocator) == .None)
+	testing.expect(t, toml.unmarshal_string(test_toml, &test_arr, allocators.temp_allocator) == .None)
 
 	test_dynarr: map[string][dynamic]int
 	testing.expect(
 		t,
-		toml.unmarshal_string(test_toml, &test_dynarr, runtime.temp_allocator) == .None,
+		toml.unmarshal_string(test_toml, &test_dynarr, allocators.temp_allocator) == .None,
 	)
 
 	Test_Enum :: enum {
@@ -231,7 +231,7 @@ unmarshal_lists_to_map :: proc(t: ^testing.T) {
 	test_enumarr: map[string][Test_Enum]int
 	testing.expect(
 		t,
-		toml.unmarshal_string(test_toml, &test_enumarr, runtime.temp_allocator) == .None,
+		toml.unmarshal_string(test_toml, &test_enumarr, allocators.temp_allocator) == .None,
 	)
 }
 

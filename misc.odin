@@ -1,6 +1,9 @@
+import "base:internal"
+import "base:mem"
+import "base:strings"
+
 import "core:fmt"
-import "core:mem"
-import "core:strings"
+import "core:strings_tools"
 import "core:strconv"
 import "core:unicode/utf8"
 
@@ -32,7 +35,7 @@ shorten_string :: proc(s: string, limit: int, or_newline := true, allocator: mem
 // when literal is true, function JUST returns str
 @private
 cleanup_backslashes :: proc(str: string, literal := false, allocator: mem.Allocator) -> (result: string, err: Error) {
-    str, _ := strings.clone(str, allocator)
+    str, _ := strings.string_clone(str, allocator)
     if literal do return str, err
 
     set_err :: proc(err: ^Error, type: ErrorType, more_fmt: string, more_args: ..any) {
@@ -40,7 +43,7 @@ cleanup_backslashes :: proc(str: string, literal := false, allocator: mem.Alloca
         fmt.sbprintf(&err.more, more_fmt, ..more_args)
     }
 
-    b: strings.Builder
+    b: strings_tools.Builder
     b.buf.allocator = allocator
     // defer builder_destroy(&b) // don't need to, shouldn't even free the original str here
 
@@ -75,7 +78,7 @@ cleanup_backslashes :: proc(str: string, literal := false, allocator: mem.Alloca
 
                 parsed_rune, _ := utf8.decode_rune_in_bytes(buf[:bytes])
                 
-                _, _ = strings.write_rune(&b, parsed_rune)
+                _, _ = strings_tools.write_rune(&b, parsed_rune)
                 to_skip = 4
 
             case 'U': // for \UXXXXXXXX
@@ -93,21 +96,21 @@ cleanup_backslashes :: proc(str: string, literal := false, allocator: mem.Alloca
                 
                 parsed_rune, _ := utf8.decode_rune_in_bytes(buf[:bytes])
                 
-                _, _ = strings.write_rune(&b, parsed_rune)
+                _, _ = strings_tools.write_rune(&b, parsed_rune)
                 to_skip = 8
 
             case 'x':
                 set_err(&err, .Bad_Unicode_Char, "\\xXX is not in the spec, you can just use \\u00XX instead.")
                 return str, err
 
-            case 'n' : strings.write_byte(&b, '\n')
-            case 'r' : strings.write_byte(&b, '\r')
-            case 't' : strings.write_byte(&b, '\t')
-            case 'b' : strings.write_byte(&b, '\b')
-            case 'f' : strings.write_byte(&b, '\f')
-            case '\\': strings.write_byte(&b, '\\')
-            case '"' : strings.write_byte(&b, '"')
-            case '\'': strings.write_byte(&b, '\'')
+            case 'n' : strings_tools.write_byte(&b, '\n')
+            case 'r' : strings_tools.write_byte(&b, '\r')
+            case 't' : strings_tools.write_byte(&b, '\t')
+            case 'b' : strings_tools.write_byte(&b, '\b')
+            case 'f' : strings_tools.write_byte(&b, '\f')
+            case '\\': strings_tools.write_byte(&b, '\\')
+            case '"' : strings_tools.write_byte(&b, '"')
+            case '\'': strings_tools.write_byte(&b, '\'')
             case ' ', '\t', '\r', '\n': 
                 // if (r == ' ' || r == '\t') && len(str) > i + 1 && (str[i + 1] != '\n' || str[i + 1] != '\r') {
                 //     err.type = .Bad_Unicode_Char
@@ -128,16 +131,16 @@ cleanup_backslashes :: proc(str: string, literal := false, allocator: mem.Alloca
                 return str, err
             }
         } else if r != '\\' {
-            _, _ = strings.write_rune(&b, r)
+            _, _ = strings_tools.write_rune(&b, r)
         } else {
             escaped = true
         }
 
         last = r
     }
-    _ = delete_string(str, allocator)
-    defer strings.builder_destroy(&b) // you can't free a builder that has been cast to string
-    b_clone, _ := strings.clone(strings.to_string(b), allocator)
+    _ = strings.string_delete(str, allocator)
+    defer strings_tools.builder_destroy(&b) // you can't free a builder that has been cast to string
+    b_clone, _ := strings.string_clone(strings_tools.to_string(b), allocator)
     return b_clone, err
 }
 
@@ -170,13 +173,13 @@ is_digit :: proc(r: rune, base: int) -> bool {
     case 8:  return r >= '0' && r <= '7'
     case 2:  return r >= '0' && r <= '1'
     }
-    assert(false, "Only bases: 16, 10, 8 and 2 are supported in TOML")
+    internal.assert(false, "Only bases: 16, 10, 8 and 2 are supported in TOML")
     return false
 }
 
 @private
 between_any :: proc(a: rune, b: ..rune) -> bool {
-    assert(len(b) % 2 == 0)
+    internal.assert(len(b) % 2 == 0)
     for i := 0; i < len(b); i += 2 {
         if a >= b[i] && a <= b[i + 1] do return true
     }
@@ -213,7 +216,7 @@ unquote :: proc(a: string, fluff: []any, allocator: mem.Allocator) -> (result: s
         }
         if count != 3 && count % 3 == 0 {
             err.type = .Bad_Value
-            strings.write_string(&err.more, "The quote count in multiline string is divisible by 3. Lol, get fucked!")
+            strings_tools.write_string(&err.more, "The quote count in multiline string is divisible by 3. Lol, get fucked!")
             return a, err
         }
     }

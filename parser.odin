@@ -1,17 +1,18 @@
 import "base:internal"
-import "base:strings"
+import "base:container/strings"
 import "base:mem"
-import "base:dyn_array"
-import "base:maps"
+import "base:container/dyn_array"
+import "base:container/maps"
+import "base:strconv"
 
 import "core:strings_tools"
-import "core:strconv"
 import "core:fmt"
+import "core:io/string_builder"
 
 import "dates"
 
-Table :: map [string] Type
-List  :: [dynamic] Type
+Table :: map[string]Type
+List  :: dyn_array.Dyn_Array(Type)
 
 Type :: union {
     ^Table,
@@ -41,7 +42,7 @@ g: ^GlobalData
 
 @private // gets a token or an empty string.
 peek :: proc(o := 0) -> string {
-    if g.curr + o >= len(g.toks) do return ""
+    if uint(g.curr + o) >= len(g.toks) do return ""
     if g.reps >= 1000 { // <-- solution to the halting problem!
         if g.toks[g.curr + o] == "\n" {
             make_err(.Bad_New_Line,  "The parser is stuck on an out-of-place new line.")
@@ -78,14 +79,14 @@ parse :: proc(data: string, original_file: string, allocator: mem.Allocator) -> 
     if t_err.type != .None do return nil, t_err
     
     // === VALIDATOR ===
-    v_err := validate(raw_tokens[:], original_file, allocator)
+    v_err := validate(dyn_array.slice(raw_tokens), original_file, allocator)
     if v_err.type != .None do return tokens, v_err
 
     // === TEMP DATA ===
     tokens, _ = mem.new(Table, allocator)
 
     initial_data: GlobalData = {
-        toks = raw_tokens[:],
+        toks = dyn_array.slice(raw_tokens),
         err  = { line = 1, file = original_file }, 
 
         root    = tokens,
@@ -167,12 +168,12 @@ walk_down :: proc(parent: ^Table, allocator: mem.Allocator) {
         g.this = value
 
     case ^List:
-        if len(value^) == 0 {
+        if value.len == 0 {
             g.this, _ = mem.new(Table, allocator)
             _ = dyn_array.append(value, g.this)
 
         } else {
-            table, is_table := value[len(value^) - 1].(^Table)
+            table, is_table := value.data[value.len - 1].(^Table)
             if !is_table {
                 make_err(.Key_Already_Exists, name)
                 return
@@ -375,29 +376,29 @@ parse_date :: proc(allocator: mem.Allocator) -> (result: dates.Date, ok: bool) {
     if !dates.is_date_lax(peek(0)) do return
     ok = true
 
-    full: strings_tools.Builder
+    full: string_builder.Builder
     full.buf.allocator = allocator
-    strings_tools.write_string(&full, next())
+    string_builder.write_string(&full, next())
     
     // is date, time or both?
     if dates.is_date_lax(peek()) {
-        _, _ = strings_tools.write_rune(&full, ' ')
-        strings_tools.write_string(&full, next())
+        _, _ = string_builder.write_rune(&full, ' ')
+        string_builder.write_string(&full, next())
     }
 
     if peek() == "." {
-        strings_tools.write_byte(&full, '.'); skip()
-        strings_tools.write_string(&full, next())
+        string_builder.write_byte(&full, '.'); skip()
+        string_builder.write_string(&full, next())
     }
 
     err: dates.DateError
-    result, err = dates.from_string(strings_tools.to_string(full))
+    result, err = dates.from_string(string_builder.to_string(&full))
     if err != .NONE {
-        make_err(.Bad_Date, "Received error: %v by parsing: '%s' as date\n", err, strings_tools.to_string(full))
+        make_err(.Bad_Date, "Received error: %v by parsing: '%s' as date\n", err, string_builder.to_string(&full))
         return
     }
 
-    strings_tools.builder_destroy(&full)
+    string_builder.builder_destroy(&full)
     return
 
 }
@@ -448,7 +449,7 @@ parse_table :: proc(allocator: mem.Allocator) -> (result: ^Table, ok: bool) {
 make_err :: proc(type: ErrorType, more_fmt: string, more_args: ..any) {
     g.err.type = type
     g.err.more.buf.allocator = g.alloc
-    strings_tools.builder_reset(&g.err.more)
+    string_builder.builder_clear(&g.err.more)
     fmt.sbprintf(&g.err.more, more_fmt, ..more_args)
 }
 

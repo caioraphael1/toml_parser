@@ -1,14 +1,14 @@
 import "base:internal"
 import "base:intrinsics"
 import "base:mem"
-import "base:slice"
-import "base:dyn_array"
-import "base:maps"
-import "base:strings"
+import "base:container/slice"
+import "base:container/dyn_array"
+import "base:container/maps"
+import "base:container/strings"
 
 import "core:fmt"
 import "core:os"
-import "core:strings_tools"
+import "core:io/string_builder"
 
 import "dates"
 
@@ -18,7 +18,7 @@ parse_file :: proc(filename: string, allocator: mem.Allocator) -> (section: ^Tab
     blob, read_err := os.read_entire_file_from_path(filename, allocator)
     if read_err != nil {
         err.type = .Bad_File
-        strings_tools.write_string(&err.more, filename)
+        string_builder.write_string(&err.more, filename)
         return nil, err
     }
 
@@ -38,7 +38,7 @@ deep_delete :: proc(type: Type, allocator: mem.Allocator) -> (err: mem.Allocator
     #partial switch value in type {
     case ^List:
         if value == nil do break
-        for &item in value { 
+        for &item in dyn_array.slice(value^) { 
             err = deep_delete(item, allocator)
             if err != .None do return
         }
@@ -102,7 +102,7 @@ get_panic :: proc($T: typeid, section: ^Table, path: ..string) -> T
 // Currently(2024-06-__), Odin hangs if you simply fmt.print Table
 print_table :: proc(section: ^Table, level := 0) {
     fmt.print("{ ")
-    i := 0
+    i: uint
     for k, v in section {
         fmt.print(k, "= ") 
         print_value(v, level)
@@ -119,11 +119,11 @@ print_value :: proc(v: Type, level := 0) {
     #partial switch t in v {
     case ^Table:
         print_table(t, level + 1)
-    case ^[dynamic] Type:
+    case ^dyn_array.Dyn_Array(Type):
         fmt.print("[ ")
-        for e, i in t {
+        for e, i in dyn_array.slice(t^) {
             print_value(e, level)
-            if i != len(t) - 1 do fmt.print(", ")
+            if i != t.len - 1 do fmt.print(", ")
             else do fmt.print(" ")
         }
         fmt.print("]")

@@ -1,10 +1,10 @@
 import "base:internal"
 import "base:mem"
-import "base:dyn_array"
-import "base:strings"
+import "base:container/dyn_array"
+import "base:container/strings"
 
+import "core:io/string_builder"
 import "core:fmt"
-import "core:strings_tools"
 
 ErrorType :: enum {
     None,
@@ -36,17 +36,17 @@ Error :: struct {
     type: ErrorType,
     line: int,    
     file: string,
-    more: strings_tools.Builder,
-    formatted: strings_tools.Builder,
+    more: string_builder.Builder,
+    formatted: string_builder.Builder,
 }
 
 // The filename is not freed, since it is only sliced 
 delete_error :: proc(err: ^Error) {
     if err.type != .None { 
-        strings_tools.builder_destroy(&err.more)
+        string_builder.builder_destroy(&err.more)
     }
-    if len(err.formatted.buf) > 0 {
-        strings_tools.builder_destroy(&err.formatted)
+    if err.formatted.buf.len > 0 {
+        string_builder.builder_destroy(&err.formatted)
     }
 }
 
@@ -89,10 +89,10 @@ format_error :: proc(err: ^Error, allocator: mem.Allocator) -> (message: string,
         .Unexpected_Token   = "Found a token that should not be there",
     }
 
-    err.formatted.buf = dyn_array.create(type_of(err.formatted.buf), allocator)
-    fmt.sbprintf(&err.formatted, "%s:%d %s! %s\n", err.file, err.line + 1, descriptions[err.type], err.more.buf[:])
+    err.formatted.buf = dyn_array.create(u8, allocator)
+    fmt.sbprintf(&err.formatted, "%s:%d %s! %s\n", err.file, err.line + 1, descriptions[err.type], dyn_array.slice(err.more.buf))
 
-    return string(err.formatted.buf[:]), true
+    return string(dyn_array.slice(err.formatted.buf)), true
 }
 
 // Skips all consecutive new lines
@@ -321,7 +321,7 @@ validate_date :: proc() -> (ok: bool) {  //{{{
 
 // Good luck!
 validate_number :: proc() -> bool {//{{{
-    at :: proc(s: string, i: int) -> rune { for r, j in s do if i == j do return r; return 0 }
+    at :: proc(s: string, i: uint) -> rune { for r, j in s do if i == j do return r; return 0 }
     
     number := peek()
     if at(number, 0) == '+' || at(number, 0) == '-' do number = number[1:] 
@@ -471,7 +471,7 @@ validate_inline_table :: proc() -> bool { //{{{
 make_err :: proc(type: ErrorType, more_fmt: string, more_args: ..any) {
     g.err.type = type
     g.err.more.buf.allocator = g.alloc
-    strings_tools.builder_reset(&g.err.more)
+    string_builder.builder_clear(&g.err.more)
     fmt.sbprintf(&g.err.more, more_fmt, ..more_args)
 }
 

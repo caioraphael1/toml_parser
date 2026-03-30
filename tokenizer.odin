@@ -1,10 +1,10 @@
 import "base:mem"
-import "base:dyn_array"
+import "base:container/dyn_array"
 
 import "core:fmt"
 
 
-tokenize :: proc(raw: string, file := "<unknown file>", allocator: mem.Allocator) -> (tokens: [dynamic] string, err: Error) {
+tokenize :: proc(raw: string, file := "<unknown file>", allocator: mem.Allocator) -> (tokens: dyn_array.Dyn_Array(string), err: Error) {
     err = { file = file, line = 1 }
 
     tokens.allocator = allocator
@@ -86,7 +86,7 @@ tokenize :: proc(raw: string, file := "<unknown file>", allocator: mem.Allocator
             key := leftover(this)
             if len(key) == 0 do return tokens, set_err(&err, .None, shorten_string(this, 1, true, allocator))
             _ = dyn_array.append(&tokens, key)
-            skip += len(key) - 1
+            skip += int(len(key) - 1)
         }
     }
 
@@ -105,13 +105,13 @@ leftover :: proc(raw: string) -> string {
 }
 
 @(private="file")
-find :: proc(a: string, b: string, skip := 0, escape := true) -> (bytes: int, runes: int) {
+find :: proc(a: string, b: string, skip: uint = 0, escape := true) -> (bytes: int, runes: int) {
     escaped: bool
     for r, i in a[skip:] {
         defer runes += 1
         if escaped do escaped = false
         else if escape && r == '\\' do escaped = true
-        else if starts_with(a[i + skip:], b) do return i + skip, runes + skip 
+        else if starts_with(a[i + skip:], b) do return int(i + skip), runes + int(skip)
     }    // "+ skip" here is bad, it would be best to count runes up until "skip"
     return -1, -1
 }
@@ -119,8 +119,8 @@ find :: proc(a: string, b: string, skip := 0, escape := true) -> (bytes: int, ru
 @(private="file")
 go_further :: proc(a: string, r1: rune) -> (bytes: int, runes: int) {
     for r2, i in a {
-        if r1 != r2 do return i, runes
-        bytes  = i
+        if r1 != r2 do return int(i), runes
+        bytes  = int(i)
         runes += 1
     }
     return 

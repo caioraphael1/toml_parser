@@ -1,15 +1,14 @@
 import "base:internal"
 import "base:intrinsics"
 import "base:mem"
-import "base:slice"
-import "base:dyn_array"
-import "base:maps"
-import "base:strings"
+import "base:container/slice"
+import "base:container/dyn_array"
+import "base:container/maps"
+import "base:container/strings"
+import "base:strconv"
 
-import "core:fmt"
 import "core:strings_tools"
 import "core:reflect"
-import "core:strconv"
 import "dates"
 
 Unmarshal_Error :: enum {
@@ -22,7 +21,7 @@ Unmarshal_Error :: enum {
     Unsupported_Type,
 }
 
-unmarshal_any :: proc(data: []byte, v: any, allocator: mem.Allocator) -> Unmarshal_Error {
+unmarshal_any :: proc(data: []u8, v: any, allocator: mem.Allocator) -> Unmarshal_Error {
     v := v
     if v == nil || v.id == nil {
         return .Invalid_Parameter
@@ -57,7 +56,7 @@ unmarshal_any :: proc(data: []byte, v: any, allocator: mem.Allocator) -> Unmarsh
     return nil
 }
 
-unmarshal :: proc(data: []byte, ptr: ^$T, allocator: mem.Allocator) -> Unmarshal_Error {
+unmarshal :: proc(data: []u8, ptr: ^$T, allocator: mem.Allocator) -> Unmarshal_Error {
     return unmarshal_any(data, ptr, allocator)
 }
 
@@ -66,7 +65,7 @@ unmarshal_string :: proc(
     ptr: ^$T,
     allocator: mem.Allocator,
 ) -> Unmarshal_Error {
-    return unmarshal_any(transmute([]byte)data, ptr, allocator)
+    return unmarshal_any(transmute([]u8)data, ptr, allocator)
 }
 
 @(private)
@@ -411,7 +410,7 @@ unmarshal_value :: proc(dest: any, value: Type, allocator: mem.Allocator) -> (er
 @(private)
 toml_name_from_tag_value :: proc(value: string) -> (toml_name, extra: string) {
     toml_name = value
-    if comma_idx := strings_tools.index_byte(toml_name, ','); comma_idx >= 0 {
+    if comma_idx, comma_found := strings_tools.index_byte(toml_name, ','); comma_found {
         toml_name = toml_name[:comma_idx]
         extra = value[1 + comma_idx:]
     }
@@ -426,14 +425,14 @@ unmarshal_list :: proc(dest: any, list: ^List, allocator: mem.Allocator) -> Unma
         list: ^List,
         allocator: mem.Allocator,
     ) -> Unmarshal_Error {
-        for i in 0 ..< len(list) {
+        for i in 0 ..< list.len {
             elem_ptr := rawptr(uintptr(base) + uintptr(i) * uintptr(elem_ti.size))
             elem := any {
                 data = elem_ptr,
                 id   = elem_ti.id,
             }
 
-            unmarshal_value(elem, list[i], allocator) or_return
+            unmarshal_value(elem, list.data[i], allocator) or_return
         }
 
         return .None
@@ -444,43 +443,32 @@ unmarshal_list :: proc(dest: any, list: ^List, allocator: mem.Allocator) -> Unma
     #partial switch t in ti.variant {
     case reflect.Type_Info_Slice:
         raw := cast(^slice.Raw_Slice)dest.data
-        data, data_ok := mem.alloc(t.elem.size * len(list), t.elem.align, list.allocator)
+        data, data_ok := mem.alloc(uint(t.elem.size) * list.len, uint(t.elem.align), list.allocator)
         if data_ok != .None {
             return .Out_Of_Memory
         }
         raw.data = raw_data(data)
-        raw.len = len(list)
+        raw.len = list.len
 
-        return assign_list(raw.data, t.elem, list, allocator)
-
-    case reflect.Type_Info_Dynamic_Array:
-        raw := cast(^dyn_array.Raw_Dynamic_Array)dest.data
-        data, data_ok := mem.alloc(t.elem.size * len(list), t.elem.align, list.allocator)
-        if data_ok != .None {
-            return .Out_Of_Memory
-        }
-        raw.data = raw_data(data)
-        raw.len = len(list)
-        raw.allocator = allocator
         return assign_list(raw.data, t.elem, list, allocator)
 
     case reflect.Type_Info_Array:
         // NOTE(bill): Allow lengths which are less than the dst array
-        if len(list) > t.count {
+        if list.len > uint(t.count) {
             return .Unsupported_Type
         }
         return assign_list(dest.data, t.elem, list, allocator)
 
     case reflect.Type_Info_Enumerated_Array:
         // NOTE(bill): Allow lengths which are less than the dst array
-        if len(list) > t.count {
+        if list.len > uint(t.count) {
             return .Unsupported_Type
         }
         return assign_list(dest.data, t.elem, list, allocator)
 
     case reflect.Type_Info_Complex:
         // NOTE(bill): Allow lengths which are less than the dst array
-        if len(list) > 2 {
+        if list.len > 2 {
             return .Unsupported_Type
         }
 
@@ -511,18 +499,20 @@ unmarshal_table :: proc(v: any, table: ^Table, allocator: mem.Allocator) -> Unma
 
         fields := reflect.struct_fields_zipped(ti.id)
         for key, value in table {
-            use_field_idx := -1
+            use_field_idx: uint
+            use_field_found: bool
 
             for field, field_idx in fields {
                 tag_value := reflect.struct_tag_get(field.tag, "toml")
                 toml_name, _ := toml_name_from_tag_value(tag_value)
                 if key == toml_name {
                     use_field_idx = field_idx
+                    use_field_found = true
                     break
                 }
             }
 
-            if use_field_idx < 0 {
+            if !use_field_found {
                 for field, field_idx in fields {
                     tag_value := reflect.struct_tag_get(field.tag, "toml")
                     toml_name, _ := toml_name_from_tag_value(tag_value)
@@ -566,16 +556,15 @@ unmarshal_table :: proc(v: any, table: ^Table, allocator: mem.Allocator) -> Unma
 
             offset: uintptr
             type: ^reflect.Type_Info
-            field_found := use_field_idx >= 0
 
-            if field_found {
+            if use_field_found {
                 offset = fields[use_field_idx].offset
                 type = fields[use_field_idx].type
             } else {
-                offset, type, field_found = check_children_using_fields(key, ti.id)
+                offset, type, use_field_found = check_children_using_fields(key, ti.id)
             }
 
-            if field_found {
+            if use_field_found {
                 field_ptr := rawptr(uintptr(v.data) + offset)
                 field := any {
                     data = field_ptr,
@@ -595,8 +584,8 @@ unmarshal_table :: proc(v: any, table: ^Table, allocator: mem.Allocator) -> Unma
         }
 
         elem_backing, elem_backing_err := mem.alloc(
-            t.value.size,
-            t.value.align,
+            uint(t.value.size),
+            uint(t.value.align),
             table.allocator,
         )
         if elem_backing_err != .None {

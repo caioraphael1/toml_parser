@@ -24,8 +24,9 @@
 import "base:internal"
 import "base:mem"
 import "base:mem/allocators"
-import "base:slice"
-import "base:maps"
+import "base:container/slice"
+import "base:container/maps"
+import "base:container/dyn_array"
 
 import "core:encoding/json"
 import "core:fmt"
@@ -42,7 +43,7 @@ main :: proc() {
 
     allocator := allocators.heap_allocator()
    
-    data, _ := slice.create([]u8, 16 * 1024 * 1024, allocator)
+    data, _ := slice.create(u8, 16 * 1024 * 1024, allocator)
     count, err_read := os.read(os.stdin, data)
     internal.assert(err_read == nil)
 
@@ -111,8 +112,8 @@ marshal :: proc(input: Type, allocator: mem.Allocator) -> (result: HelpMePlease,
         internal.assert(false)
     case ^List:
         if value == nil do return result, false
-        out, _ := slice.create([]HelpMePlease, len(value), allocator)
-        for v, i in value {out[i] = marshal(v, allocator) or_continue}
+        out, _ := slice.create(HelpMePlease, value.len, allocator)
+        for v, i in dyn_array.slice(value^) { out[i] = marshal(v, allocator) or_continue}
         return out, true
 
     case ^Table:

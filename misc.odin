@@ -1,17 +1,17 @@
 import "base:internal"
 import "base:mem"
-import "base:strings"
+import "base:container/strings"
+import "base:strconv"
+import "base:unicode/utf8"
 
 import "core:fmt"
-import "core:strings_tools"
-import "core:strconv"
-import "core:unicode/utf8"
+import "core:io/string_builder"
 
 @private
 find_newline :: proc(raw: string) -> (bytes: int, runes: int) {
     for r, i in raw {
         defer runes += 1
-        if r == '\r' || r == '\n' do return i, runes
+        if r == '\r' || r == '\n' do return int(i), runes
     }
     return -1, -1
 }
@@ -23,9 +23,9 @@ shorten_string :: proc(s: string, limit: int, or_newline := true, allocator: mem
     }
 
     newline, _ := find_newline(s) // add another line if you are using (..MAC OS 9) here... fuck it.
-    if newline == -1 do newline = len(s)
+    if newline == -1 do newline = int(len(s))
 
-    if limit < len(s) || newline < len(s) {
+    if limit < int(len(s)) || newline < int(len(s)) {
         return fmt.aprint({ s[:min(limit, newline)], "..." }, allocator = allocator)
     }
 
@@ -43,7 +43,7 @@ cleanup_backslashes :: proc(str: string, literal := false, allocator: mem.Alloca
         fmt.sbprintf(&err.more, more_fmt, ..more_args)
     }
 
-    b: strings_tools.Builder
+    b: string_builder.Builder
     b.buf.allocator = allocator
     // defer builder_destroy(&b) // don't need to, shouldn't even free the original str here
 
@@ -76,9 +76,9 @@ cleanup_backslashes :: proc(str: string, literal := false, allocator: mem.Alloca
                     return str, err
                 }
 
-                parsed_rune, _ := utf8.decode_rune_in_bytes(buf[:bytes])
+                parsed_rune, _ := utf8.rune_from_bytes(buf[:bytes])
                 
-                _, _ = strings_tools.write_rune(&b, parsed_rune)
+                _, _ = string_builder.write_rune(&b, parsed_rune)
                 to_skip = 4
 
             case 'U': // for \UXXXXXXXX
@@ -94,23 +94,23 @@ cleanup_backslashes :: proc(str: string, literal := false, allocator: mem.Alloca
                     return str, err
                 }
                 
-                parsed_rune, _ := utf8.decode_rune_in_bytes(buf[:bytes])
+                parsed_rune, _ := utf8.rune_from_bytes(buf[:bytes])
                 
-                _, _ = strings_tools.write_rune(&b, parsed_rune)
+                _, _ = string_builder.write_rune(&b, parsed_rune)
                 to_skip = 8
 
             case 'x':
                 set_err(&err, .Bad_Unicode_Char, "\\xXX is not in the spec, you can just use \\u00XX instead.")
                 return str, err
 
-            case 'n' : strings_tools.write_byte(&b, '\n')
-            case 'r' : strings_tools.write_byte(&b, '\r')
-            case 't' : strings_tools.write_byte(&b, '\t')
-            case 'b' : strings_tools.write_byte(&b, '\b')
-            case 'f' : strings_tools.write_byte(&b, '\f')
-            case '\\': strings_tools.write_byte(&b, '\\')
-            case '"' : strings_tools.write_byte(&b, '"')
-            case '\'': strings_tools.write_byte(&b, '\'')
+            case 'n' : string_builder.write_byte(&b, '\n')
+            case 'r' : string_builder.write_byte(&b, '\r')
+            case 't' : string_builder.write_byte(&b, '\t')
+            case 'b' : string_builder.write_byte(&b, '\b')
+            case 'f' : string_builder.write_byte(&b, '\f')
+            case '\\': string_builder.write_byte(&b, '\\')
+            case '"' : string_builder.write_byte(&b, '"')
+            case '\'': string_builder.write_byte(&b, '\'')
             case ' ', '\t', '\r', '\n': 
                 // if (r == ' ' || r == '\t') && len(str) > i + 1 && (str[i + 1] != '\n' || str[i + 1] != '\r') {
                 //     err.type = .Bad_Unicode_Char
@@ -131,7 +131,7 @@ cleanup_backslashes :: proc(str: string, literal := false, allocator: mem.Alloca
                 return str, err
             }
         } else if r != '\\' {
-            _, _ = strings_tools.write_rune(&b, r)
+            _, _ = string_builder.write_rune(&b, r)
         } else {
             escaped = true
         }
@@ -139,8 +139,8 @@ cleanup_backslashes :: proc(str: string, literal := false, allocator: mem.Alloca
         last = r
     }
     _ = strings.string_delete(str, allocator)
-    defer strings_tools.builder_destroy(&b) // you can't free a builder that has been cast to string
-    b_clone, _ := strings.string_clone(strings_tools.to_string(b), allocator)
+    defer string_builder.builder_destroy(&b) // you can't free a builder that has been cast to string
+    b_clone, _ := strings.string_clone(string_builder.to_string(&b), allocator)
     return b_clone, err
 }
 
@@ -180,7 +180,7 @@ is_digit :: proc(r: rune, base: int) -> bool {
 @private
 between_any :: proc(a: rune, b: ..rune) -> bool {
     internal.assert(len(b) % 2 == 0)
-    for i := 0; i < len(b); i += 2 {
+    for i: uint; i < len(b); i += 2 {
         if a >= b[i] && a <= b[i + 1] do return true
     }
     return false
@@ -216,12 +216,12 @@ unquote :: proc(a: string, fluff: []any, allocator: mem.Allocator) -> (result: s
         }
         if count != 3 && count % 3 == 0 {
             err.type = .Bad_Value
-            strings_tools.write_string(&err.more, "The quote count in multiline string is divisible by 3. Lol, get fucked!")
+            string_builder.write_string(&err.more, "The quote count in multiline string is divisible by 3. Lol, get fucked!")
             return a, err
         }
     }
 
-    unquoted := a[qcount:len(a) - qcount]
+    unquoted := a[qcount:len(a) - uint(qcount)]
     if len(unquoted) > 0 && unquoted[0] == '\n' do unquoted = unquoted[1:]
     return cleanup_backslashes(unquoted, a[0] == '\'', allocator)
 }

@@ -1,10 +1,9 @@
-import "base:internal"
 import "base:mem"
-import "base:container/dyn_array"
 import "base:container/strings"
+import "base:container/str"
 
-import "core:io/string_builder"
-import "core:fmt"
+import "core:os"
+
 
 ErrorType :: enum {
     None,
@@ -33,22 +32,13 @@ ErrorType :: enum {
 }
 
 Error :: struct {
-    type: ErrorType,
-    line: int,    
-    file: string,
-    more: string_builder.Builder,
-    formatted: string_builder.Builder,
+    type:      ErrorType,
+    line:      int,    
+    file:      string,
+    more:      str.String(256),
+    formatted: str.String(256),
 }
 
-// The filename is not freed, since it is only sliced 
-delete_error :: proc(err: ^Error) {
-    if err.type != .None { 
-        string_builder.builder_destroy(&err.more)
-    }
-    if err.formatted.buf.len > 0 {
-        string_builder.builder_destroy(&err.formatted)
-    }
-}
 
 // This may also be a warning!
 print_error :: proc(err: Error, allocator: mem.Allocator) -> (fatal: bool) {
@@ -56,7 +46,7 @@ print_error :: proc(err: Error, allocator: mem.Allocator) -> (fatal: bool) {
     message: string
     message, fatal = format_error(&err, allocator)
     if message != "" {
-        fmt.printf("[TOML ERROR] %s", message) 
+        os.printf("[TOML ERROR] %", message) 
         _ = strings.string_delete(message, allocator)
     }
     return fatal
@@ -89,10 +79,11 @@ format_error :: proc(err: ^Error, allocator: mem.Allocator) -> (message: string,
         .Unexpected_Token   = "Found a token that should not be there",
     }
 
-    err.formatted.buf = dyn_array.create(u8, allocator)
-    fmt.sbprintf(&err.formatted, "%s:%d %s! %s\n", err.file, err.line + 1, descriptions[err.type], dyn_array.slice(err.more.buf))
+    os.assert(str.writef(&err.formatted, "%:% %! %\n", err.file, str.from_int(err.line + 1), descriptions[err.type], str.str(&err.more)))
 
-    return string(dyn_array.slice(err.formatted.buf)), true
+    s_clone, _ := strings.string_clone(str.str(&err.formatted), allocator)
+
+    return s_clone, true
 }
 
 // Skips all consecutive new lines
@@ -114,7 +105,7 @@ validate :: proc(raw_tokens: [] string, file: string, allocator: mem.Allocator) 
 
     for peek() != "" {
         if !validate_stmt() {
-            make_err(.Unexpected_Token, "Could not validate the (assumed to be) statement: %s", peek())
+            make_err(.Unexpected_Token, "Could not validate the (assumed to be) statement: %", peek())
         }
         if g.err.type != .None do break
     }
@@ -163,7 +154,7 @@ validate_assign :: proc() -> bool {
     if peek(1) != "=" && peek(1) != "." do return false
 
     if !validate_path() do return false
-    if err_if_not(peek() == "=", .Expected_Equals, "Keys must be followed by '=' and then the value! Instead got: %s", peek()) do return false
+    if err_if_not(peek() == "=", .Expected_Equals, "Keys must be followed by '=' and then the value! Instead got: %", peek()) do return false
     skip() // '='
     return validate_expr()
 }
@@ -183,14 +174,14 @@ validate_path :: proc() -> bool {//{{{
         }
 
         if !validate_name() {
-            make_err(.Bad_Name, "key in path cannot have this name: '%s'", peek())
+            make_err(.Bad_Name, "key in path cannot have this name: '%'", peek())
             return false
         }
         skip()
     }
 
     if !validate_name() {
-        make_err(.Bad_Name, "key in path cannot have this name: '%s'", peek())
+        make_err(.Bad_Name, "key in path cannot have this name: '%'", peek())
         return false
     }
     
@@ -212,7 +203,7 @@ validate_string :: proc() -> bool {//{{{
         PATTERNS := [] string { "\"\"\"", "'''", "\"", "\'", }
         for p in PATTERNS {
             if starts_with(peek(), p) {
-                if err_if_not(ends_with(peek(), p), .Missing_Quote, "string '%s' is missing one or more quotes", peek()) do return false
+                if err_if_not(ends_with(peek(), p), .Missing_Quote, "string '%' is missing one or more quotes", peek()) do return false
             }
         }
         skip()
@@ -266,7 +257,7 @@ validate_date :: proc() -> (ok: bool) {  //{{{
     }
 
     validate_time :: proc(str: string) -> bool {
-        if err_if_not(is_proper_time(str), .Bad_Date, "The date: '%s' is not valid, please use rfc 3339 (e.g.: 1234-12-12, or 60:45:30+02:00)", peek()) do return false
+        if err_if_not(is_proper_time(str), .Bad_Date, "The date: '%' is not valid, please use rfc 3339 (e.g.: 1234-12-12, or 60:45:30+02:00)", peek()) do return false
         
         offset := str[8:] if len(str) > 8 else ""
 
@@ -298,7 +289,7 @@ validate_date :: proc() -> (ok: bool) {  //{{{
      
     // Dates will necessarily have - as their 5th symbol: "0123-00-00"
     if len(peek()) > 4 && peek()[4] == '-' {
-        err_if_not(is_proper_date(peek()), .Bad_Date, "The date: '%s' is not valid, please use rfc 3339 (e.g.: 1234-12-12, or 60:45:30+02:00)", peek())
+        err_if_not(is_proper_date(peek()), .Bad_Date, "The date: '%' is not valid, please use rfc 3339 (e.g.: 1234-12-12, or 60:45:30+02:00)", peek())
         
         // time can be seperated either by { 't', 'T' or ' ' }, ' ' is split by tokenizer
         if len(peek()) > 11 && (peek()[10] == 'T' || peek()[10] == 't') {
@@ -327,7 +318,7 @@ validate_number :: proc() -> bool {//{{{
     if at(number, 0) == '+' || at(number, 0) == '-' do number = number[1:] 
 
     if eq(number, "nan") || eq(number, "inf") {
-        err_if_not(number == "nan" || number == "inf", .Bad_Float, "NaN and Inf must be fully lowercase in TOML: `nan` and `inf`! (I don't know why). Your's is: '%s'", peek())
+        err_if_not(number == "nan" || number == "inf", .Bad_Float, "NaN and Inf must be fully lowercase in TOML: `nan` and `inf`! (I don't know why). Your's is: '%'", peek())
         skip()
         return true
     }
@@ -378,7 +369,7 @@ validate_number :: proc() -> bool {//{{{
         case 'x': base = 16; main = main[2:]
         case 'o': base =  8; main = main[2:]
         case 'b': base =  2; main = main[2:]
-        case  0 : ;
+        case  0 :
         case: make_err(.Bad_Integer, "A number cannot start with '0'. Please use '0o1234' for octal")
         }
     }
@@ -388,7 +379,7 @@ validate_number :: proc() -> bool {//{{{
     prev = 0 
     for r, i in main {
         if prev == 0 && !is_digit(r, base) do return false
-        if err_if_not(is_digit(r, base) || r == '_', .Bad_Integer, "Unexpected character: '%v' in number", r) do return false
+        if err_if_not(is_digit(r, base) || r == '_', .Bad_Integer, "Unexpected character: '%' in number", "r") do return false
         if !validate_underscores(r, prev, i == len(main) - 1) do return false
         prev = r
     }
@@ -396,7 +387,7 @@ validate_number :: proc() -> bool {//{{{
     prev = 0
     for r, i in fraction {
         if prev == 0 && !is_digit(r, base) do return false
-        if err_if_not(is_digit(r, base) || r == '_', .Bad_Integer, "Unexpected character: '%v' in decimal part of number ", r) do return false
+        if err_if_not(is_digit(r, base) || r == '_', .Bad_Integer, "Unexpected character: '%' in decimal part of number ", "r") do return false
         if !validate_underscores(r, prev, i == len(fraction) - 1) do return false
         prev = r
     }
@@ -404,7 +395,7 @@ validate_number :: proc() -> bool {//{{{
     prev = 0
     for r, i in exponent {
         if prev == 0 && !is_digit(r, base) do return false
-        if err_if_not(is_digit(r, base) || r == '_', .Bad_Integer, "Unexpected character: '%v' in exponent part of number", r) do return false
+        if err_if_not(is_digit(r, base) || r == '_', .Bad_Integer, "Unexpected character: '%' in exponent part of number", "r") do return false
         if !validate_underscores(r, prev, i == len(exponent) - 1) do return false
         prev = r
     }
@@ -418,7 +409,6 @@ validate_inline_list :: proc() -> bool { //{{{
     if peek() != "[" do return false
     skip() // '['
 
-    last_was_comma: bool
     for {
 
         _ = skip_newline()
@@ -468,15 +458,14 @@ validate_inline_table :: proc() -> bool { //{{{
 }//}}}
 
 @(private="file")
-make_err :: proc(type: ErrorType, more_fmt: string, more_args: ..any) {
+make_err :: proc(type: ErrorType, more_fmt: string, more_args: ..str.String_Type) {
     g.err.type = type
-    g.err.more.buf.allocator = g.alloc
-    string_builder.builder_clear(&g.err.more)
-    fmt.sbprintf(&g.err.more, more_fmt, ..more_args)
+    str.clear(&g.err.more)
+    os.assert(str.writef(&g.err.more, more_fmt, ..more_args))
 }
 
 @(private="file", optional_results)
-err_if_not :: proc(cond: bool, type: ErrorType, more_fmt: string, more_args: ..any) -> bool {
+err_if_not :: proc(cond: bool, type: ErrorType, more_fmt: string, more_args: ..str.String_Type) -> bool {
     if !cond do make_err(type, more_fmt, ..more_args)
     return !cond
 }

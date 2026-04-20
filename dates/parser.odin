@@ -1,11 +1,13 @@
 import "base:mem"
 import "base:math"
 import "base:container/slice"
+import "base:container/str"
+import "base:container/strings"
 import "base:strconv"
 
-import "core:fmt"
+import "core:os"
 import "core:strings_tools"
-import "core:io/string_builder"
+
 
 DateError :: enum {
     NONE,
@@ -141,28 +143,28 @@ to_string :: proc(date: Date, time_sep := ' ', allocator: mem.Allocator) -> (out
         if !between(date.offset_minute, -59, 59) do return "", .OFFSET_MINUTE_OUT_OF_BOUNDS
     }
 
-    b: string_builder.Builder
-    _ = string_builder.builder_init_len_cap(&b, 0, 25, allocator)
+    b: str.String(128)
 
-    fmt.sbprintf(&b, "%04d-%02d-%02d", date.year, date.month, date.day)
-    _, _ = string_builder.write_rune(&b, time_sep)
-    fmt.sbprintf(&b, "%02d:%02d:%02.0f", date.hour, date.minute, date.second)
+    os.assert(str.writef(&b, "%04d-%02d-%02d", str.from_int(date.year), str.from_int(date.month), str.from_int(date.day)))
+    os.assert(str.write_rune(&b, time_sep))
+    os.assert(str.writef(&b, "%02d:%02d:%02.0f", str.from_int(date.hour), str.from_int(date.minute), str.from_float(f64(date.second))))
 
-    if date.offset_hour == 0 && date.offset_minute == 0 do _, _ = string_builder.write_rune(&b, 'Z')
+    if date.offset_hour == 0 && date.offset_minute == 0 do os.assert(str.write_rune(&b, 'Z'))
     else {
         if date.offset_minute != 0 && sign(date.offset_hour) != sign(date.offset_minute) {
             date.offset_hour += sign(date.offset_minute)
             date.offset_minute = 60 - abs(date.offset_minute) // sign doesn't matter, because later prints the abs of date.offset_minute
-            fmt.printf("DATE PARSER WARNING: signs of your Date.offset_hour & Date.offset_minute do not match! " + "Given dates will be safely converted, but may be unexpected. " + "Go to line: %d in: %s to find out more.\n", #line - 5, #file)
+            os.printf("DATE PARSER WARNING: signs of your Date.offset_hour & Date.offset_minute do not match! " + "Given dates will be safely converted, but may be unexpected. " + "Go to line: % in: % to find out more.\n", str.from_int(int(#line - 5)), #file)
         }
 
-        if date.offset_hour < 0 do _, _ = string_builder.write_rune(&b, '-')
-        else do _, _ = string_builder.write_rune(&b, '+')
+        if date.offset_hour < 0 do os.assert(str.write_rune(&b, '-'))
+        else do os.assert(str.write_rune(&b, '+'))
 
-        fmt.sbprintf(&b, "%02d:%02d", abs(date.offset_hour), abs(date.offset_minute))
+        os.assert(str.writef(&b, "%02d:%02d", str.from_int(abs(date.offset_hour)), str.from_int(abs(date.offset_minute))))
     }
 
-    return string_builder.to_string(&b), .NONE
+    s_clone, _ := strings.string_clone(str.str(&b), allocator)
+    return s_clone, .NONE
 }
 
 partial_date_to_string :: proc(date: Date, time_sep := ' ', allocator: mem.Allocator) -> (out: string, err: DateError) {
@@ -178,46 +180,46 @@ partial_date_to_string :: proc(date: Date, time_sep := ' ', allocator: mem.Alloc
         if !between(date.offset_minute, -59, 59) do return "", .OFFSET_MINUTE_OUT_OF_BOUNDS
     }
 
-    b: string_builder.Builder
-    _ = string_builder.builder_init_len_cap(&b, 0, 25, allocator)
+    b: str.String(128)
 
     _, frac := math.modf_f32(date.second)
     timefmt := "%02d:%02d:%02.0f"
     if frac > 0  do timefmt = "%02d:%02d:%06.03f"
 
     if date.is_date_only {
-        fmt.sbprintf(&b, "%04d-%02d-%02d", date.year, date.month, date.day)
-        return string_builder.to_string(&b), .NONE
+        os.assert(str.writef(&b, "%04d-%02d-%02d", str.from_int(date.year), str.from_int(date.month), str.from_int(date.day)))
+        return str.str(&b), .NONE
     }
     if date.is_time_only {
-        fmt.sbprintf(&b, timefmt, date.hour, date.minute, date.second)
-        return string_builder.to_string(&b), .NONE
+        os.assert(str.writef(&b, timefmt, str.from_int(date.hour), str.from_int(date.minute), str.from_float(f64(date.second))))
+        return str.str(&b), .NONE
     }
 
-    fmt.sbprintf(&b, "%04d-%02d-%02d", date.year, date.month, date.day)
-    _, _ = string_builder.write_rune(&b, time_sep)
-    fmt.sbprintf(&b, timefmt, date.hour, date.minute, date.second)
+    os.assert(str.writef(&b, "%04d-%02d-%02d", str.from_int(date.year), str.from_int(date.month), str.from_int(date.day)))
+    os.assert(str.write_rune(&b, time_sep))
+    os.assert(str.writef(&b, timefmt, str.from_int(date.hour), str.from_int(date.minute), str.from_float(f64(date.second))))
 
-    if date.is_date_local do return string_builder.to_string(&b), .NONE
+    if date.is_date_local do return str.str(&b), .NONE
 
-    if date.offset_hour == 0 && date.offset_minute == 0 do _, _ = string_builder.write_rune(&b, 'Z')
+    if date.offset_hour == 0 && date.offset_minute == 0 do os.assert(str.write_rune(&b, 'Z'))
     else {
         if date.offset_minute != 0 && sign(date.offset_hour) != sign(date.offset_minute) {
             date.offset_hour += sign(date.offset_minute)
             date.offset_minute = 60 - abs(date.offset_minute) // sign doesn't matter, because later prints the abs of date.offset_minute
-            fmt.printf("DATE PARSER WARNING: signs of your Date.offset_hour & Date.offset_minute do not match! " + "Given dates will be safely converted, but may be unexpected. " + "Go to line: %d in: %s to find out more.\n", #line - 5, #file)
+            os.printf("DATE PARSER WARNING: signs of your Date.offset_hour & Date.offset_minute do not match! " + "Given dates will be safely converted, but may be unexpected. " + "Go to line: % in: % to find out more.\n", str.from_int(int(#line - 5)), #file)
         }
 
         if date.offset_hour < 0 {
-            _, _ = string_builder.write_rune(&b, '-')
+            os.assert(str.write_rune(&b, '-'))
         } else {
-            _, _ = string_builder.write_rune(&b, '+')
+            os.assert(str.write_rune(&b, '+'))
         }
 
-        fmt.sbprintf(&b, "%02d:%02d", abs(date.offset_hour), abs(date.offset_minute))
+        os.assert(str.writef(&b, "%02d:%02d", str.from_int(abs(date.offset_hour)), str.from_int(abs(date.offset_minute))))
     }
 
-    return string_builder.to_string(&b), .NONE
+    s_clone, _ := strings.string_clone(str.str(&b), allocator)
+    return s_clone, .NONE
 }
 
 

@@ -1,7 +1,8 @@
 import "base:mem"
+import "base:container/str"
 import "base:container/dyn_array"
 
-import "core:fmt"
+import "core:os"
 
 
 tokenize :: proc(raw: string, file := "<unknown file>", allocator: mem.Allocator) -> (tokens: dyn_array.Dyn_Array(string), err: Error) {
@@ -16,7 +17,7 @@ tokenize :: proc(raw: string, file := "<unknown file>", allocator: mem.Allocator
         switch { // by the way, do NOT use the 'fallthrough' keyword
         // makes more invalid tests pass
         case !is_bare_rune_valid(r):
-            _ = set_err(&err, .Bad_Unicode_Char, "'%v'", r)
+            _ = set_err(&err, .Bad_Unicode_Char, "'%'", "r")
             return
 
         // throws error if only a carriage return is found, I guess, fuck macOS ..9?
@@ -127,8 +128,8 @@ go_further :: proc(a: string, r1: rune) -> (bytes: int, runes: int) {
 }
 
 @(private="file")
-set_err :: proc(err: ^Error, type: ErrorType, more_fmt: string, more_args: ..any) -> Error {
+set_err :: proc(err: ^Error, type: ErrorType, more_fmt: string, more_args: ..str.String_Type) -> Error {
     err.type = type
-    fmt.sbprintf(&err.more, more_fmt, ..more_args)
+    os.assert(str.writef(&err.more, more_fmt, ..more_args))
     return err^
 }

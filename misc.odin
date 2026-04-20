@@ -1,13 +1,14 @@
 import "base:internal"
 import "base:mem"
+import "base:container/str"
 import "base:container/strings"
 import "base:strconv"
 import "base:unicode/utf8"
 
-import "core:fmt"
-import "core:io/string_builder"
+import "core:os"
 
-@private
+
+@(private)
 find_newline :: proc(raw: string) -> (bytes: int, runes: int) {
     for r, i in raw {
         defer runes += 1
@@ -16,7 +17,7 @@ find_newline :: proc(raw: string) -> (bytes: int, runes: int) {
     return -1, -1
 }
 
-@private
+@(private)
 shorten_string :: proc(s: string, limit: int, or_newline := true, allocator: mem.Allocator) -> string {
     min :: proc(a, b: int) -> int {
         return a if a < b else b
@@ -26,32 +27,31 @@ shorten_string :: proc(s: string, limit: int, or_newline := true, allocator: mem
     if newline == -1 do newline = int(len(s))
 
     if limit < int(len(s)) || newline < int(len(s)) {
-        return fmt.aprint({ s[:min(limit, newline)], "..." }, allocator = allocator)
+        res, _ := strings.string_concatenate({ s[:min(limit, newline)], "..." }, allocator = allocator)
+        return res
     }
 
     return s
 }
 
-// when literal is true, function JUST returns str
-@private
-cleanup_backslashes :: proc(str: string, literal := false, allocator: mem.Allocator) -> (result: string, err: Error) {
-    str, _ := strings.string_clone(str, allocator)
-    if literal do return str, err
 
-    set_err :: proc(err: ^Error, type: ErrorType, more_fmt: string, more_args: ..any) {
+@(private)
+cleanup_backslashes :: proc(ss_: string, literal := false, allocator: mem.Allocator) -> (result: string, err: Error) {
+    ss, _ := strings.string_clone(ss_, allocator)
+    if literal do return ss, err
+
+    set_err :: proc(err: ^Error, type: ErrorType, more_fmt: string, more_args: ..str.String_Type) {
         err.type = type
-        fmt.sbprintf(&err.more, more_fmt, ..more_args)
+        os.assert(str.writef(&err.more, more_fmt, ..more_args))
     }
 
-    b: string_builder.Builder
-    b.buf.allocator = allocator
-    // defer builder_destroy(&b) // don't need to, shouldn't even free the original str here
+    s: str.String(128)
 
     to_skip := 0
 
     last: rune
     escaped: bool
-    for r, i in str {
+    for r, i in ss {
 
         if to_skip > 0 {
             to_skip -= 1
@@ -63,101 +63,100 @@ cleanup_backslashes :: proc(str: string, literal := false, allocator: mem.Alloca
 
             switch r {
             case 'u': // for \uXXXX
-                if len(str) < i + 5 {
-                    set_err(&err, .Bad_Unicode_Char, "'\\u' does most have hex 4 digits after it in string:", str)
-                    return str, err
+                if len(ss) < i + 5 {
+                    set_err(&err, .Bad_Unicode_Char, "'\\u' does most have hex 4 digits after it in string:", ss)
+                    return ss, err
                 }
 
-                code, ok := strconv.parse_u64_of_base(str[i + 1: i + 5], 16)
+                code, _ := strconv.parse_u64_of_base(ss[i + 1: i + 5], 16)
                 buf, bytes := toml_ucs_to_utf8(code)
 
                 if bytes == -1 {
-                    set_err(&err, .Bad_Unicode_Char, "'%s'", str[i + 1:i + 5])
-                    return str, err
+                    set_err(&err, .Bad_Unicode_Char, "'%'", ss[i + 1:i + 5])
+                    return ss, err
                 }
 
                 parsed_rune, _ := utf8.rune_from_bytes(buf[:bytes])
                 
-                _, _ = string_builder.write_rune(&b, parsed_rune)
+                os.assert(str.write_rune(&s, parsed_rune))
                 to_skip = 4
 
             case 'U': // for \UXXXXXXXX
-                if len(str) < i + 9 {
-                    set_err(&err, .Bad_Unicode_Char, "'\\U' does most have hex 8 digits after it in string:", str)
-                    return str, err
+                if len(ss) < i + 9 {
+                    set_err(&err, .Bad_Unicode_Char, "'\\U' does most have hex 8 digits after it in string:", ss)
+                    return ss, err
                 }
-                code, ok := strconv.parse_u64_of_base(str[i + 1:i + 9], 16)
+                code, _ := strconv.parse_u64_of_base(ss[i + 1:i + 9], 16)
                 buf, bytes := toml_ucs_to_utf8(code)
 
                 if bytes == -1 {
-                    set_err(&err, .Bad_Unicode_Char, "'%s'", str[i + 1:i + 9])
-                    return str, err
+                    set_err(&err, .Bad_Unicode_Char, "'%'", ss[i + 1:i + 9])
+                    return ss, err
                 }
                 
                 parsed_rune, _ := utf8.rune_from_bytes(buf[:bytes])
                 
-                _, _ = string_builder.write_rune(&b, parsed_rune)
+                os.assert(str.write_rune(&s, parsed_rune))
                 to_skip = 8
 
             case 'x':
                 set_err(&err, .Bad_Unicode_Char, "\\xXX is not in the spec, you can just use \\u00XX instead.")
-                return str, err
+                return ss, err
 
-            case 'n' : string_builder.write_byte(&b, '\n')
-            case 'r' : string_builder.write_byte(&b, '\r')
-            case 't' : string_builder.write_byte(&b, '\t')
-            case 'b' : string_builder.write_byte(&b, '\b')
-            case 'f' : string_builder.write_byte(&b, '\f')
-            case '\\': string_builder.write_byte(&b, '\\')
-            case '"' : string_builder.write_byte(&b, '"')
-            case '\'': string_builder.write_byte(&b, '\'')
+            case 'n' : os.assert(str.write_byte(&s, '\n'))
+            case 'r' : os.assert(str.write_byte(&s, '\r'))
+            case 't' : os.assert(str.write_byte(&s, '\t'))
+            // case 's' : os.assert(str.write_byte(&s, '\s'))
+            case 'f' : os.assert(str.write_byte(&s, '\f'))
+            case '\\': os.assert(str.write_byte(&s, '\\'))
+            case '"' : os.assert(str.write_byte(&s, '"'))
+            case '\'': os.assert(str.write_byte(&s, '\''))
             case ' ', '\t', '\r', '\n': 
-                // if (r == ' ' || r == '\t') && len(str) > i + 1 && (str[i + 1] != '\n' || str[i + 1] != '\r') {
+                // if (r == ' ' || r == '\t') && len(ss) > i + 1 && (ss[i + 1] != '\n' || ss[i + 1] != '\r') {
                 //     err.type = .Bad_Unicode_Char
                 //     err.more = "cannot escape space in the middle of the line."
                 // }
-                // if len(str) == i + 1 {
+                // if len(ss) == i + 1 {
                 //     err.type = .Bad_Unicode_Char
                 //     err.more = "Cannot escape space/new line when it is the last character"
                 // }
                 
                 // Fun thing for multiline line string line escaping.
-                for r in str[i + 1:] {
-                    if r == ' ' || r == '\t' || r == '\r' || r == '\n' do to_skip += 1
+                for r_ in ss[i + 1:] {
+                    if r_ == ' ' || r_ == '\t' || r_ == '\r' || r_ == '\n' do to_skip += 1
                     else do break
                 }
             case: 
                 set_err(&err, .Bad_Unicode_Char, "Unexpected escape sequence found.")
-                return str, err
+                return ss, err
             }
         } else if r != '\\' {
-            _, _ = string_builder.write_rune(&b, r)
+            os.assert(str.write_rune(&s, r))
         } else {
             escaped = true
         }
 
         last = r
     }
-    _ = strings.string_delete(str, allocator)
-    defer string_builder.builder_destroy(&b) // you can't free a builder that has been cast to string
-    b_clone, _ := strings.string_clone(string_builder.to_string(&b), allocator)
+    _ = strings.string_delete(ss, allocator)
+    b_clone, _ := strings.string_clone(str.str(&s), allocator)
     return b_clone, err
 }
 
-@private
+@(private)
 any_of :: proc(a: $T, B: ..T) -> bool {
     for b in B do if a == b do return true
     return false
 }
 
-@private
+@(private)
 is_space :: proc(r: u8) -> bool {
     SPACE : [4] u8 = { ' ', '\r', '\n', '\t' }
     return r == SPACE[0] || r == SPACE[1] || r == SPACE[2] || r == SPACE[3]
     // Nudge nudge
 } 
 
-@private
+@(private)
 is_special :: proc(r: u8) -> bool {
     SPECIAL : [8] u8 = { '=', ',',  '.',  '[', ']', '{', '}', 0 }
     return  r == SPECIAL[0] || r == SPECIAL[1] || r == SPECIAL[2] || r == SPECIAL[3] ||
@@ -165,7 +164,7 @@ is_special :: proc(r: u8) -> bool {
     // Shove shove
 } 
 
-@private
+@(private)
 is_digit :: proc(r: rune, base: int) -> bool {
     switch base {
     case 16: return (r >= '0' && r <= '9') || (r >= 'A' && r <= 'F') || (r >= 'a' && r <= 'f')
@@ -177,7 +176,7 @@ is_digit :: proc(r: rune, base: int) -> bool {
     return false
 }
 
-@private
+@(private)
 between_any :: proc(a: rune, b: ..rune) -> bool {
     internal.assert(len(b) % 2 == 0)
     for i: uint; i < len(b); i += 2 {
@@ -216,7 +215,7 @@ unquote :: proc(a: string, fluff: []any, allocator: mem.Allocator) -> (result: s
         }
         if count != 3 && count % 3 == 0 {
             err.type = .Bad_Value
-            string_builder.write_string(&err.more, "The quote count in multiline string is divisible by 3. Lol, get fucked!")
+            os.assert(str.write(&err.more, "The quote count in multiline string is divisible by 3. Lol, get fucked!"))
             return a, err
         }
     }
@@ -237,7 +236,7 @@ ends_with :: proc(a, b: string) -> bool {
 }
 
 // case-insensitive compare
-@private
+@(private)
 eq :: proc(a, b: string) -> bool {
     if len(a) != len(b) do return false
     #no_bounds_check for i in 0..<len(a) {
@@ -251,7 +250,7 @@ eq :: proc(a, b: string) -> bool {
     return true
 }
 
-@private
+@(private)
 is_list :: proc(t: Type) -> bool { 
     _, is_list := t.(^List)
     return is_list

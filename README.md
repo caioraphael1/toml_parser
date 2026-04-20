@@ -98,7 +98,7 @@ Here are the variants: `{ table, list, string, bool, i64, f64, date }`
 
 ## Printing
 
-Generally replaced by `fmt.print` and `fmt.printf("%#v\n", ...`.
+Generally replaced by `os.print` and `os.printf("%\n", ...`.
 ```odin
 print_table :: proc(section: ^Table, level := 0)
 ```
@@ -125,7 +125,7 @@ Simply, frees the error.
 ## Testing (internal)
 
 ```odin
-@private
+@(private)
 main :: proc()
 ```
 This is here for `toml-test`. It takes in the TOML from `stdin`, parses it, marshal's it to JSON and prints the JSON to stdout. 

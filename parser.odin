@@ -1,13 +1,13 @@
 import "base:internal"
-import "base:container/strings"
 import "base:mem"
+import "base:container/str"
+import "base:container/strings"
 import "base:container/dyn_array"
 import "base:container/maps"
 import "base:strconv"
 
+import "core:os"
 import "core:strings_tools"
-import "core:fmt"
-import "core:io/string_builder"
 
 import "dates"
 
@@ -24,7 +24,7 @@ Type :: union {
     dates.Date,
 }
 
-@private
+@(private)
 GlobalData :: struct {
     toks    : [] string, // all token list
     curr    : int,       // the current token index
@@ -36,11 +36,11 @@ GlobalData :: struct {
     alloc   : mem.Allocator // probably useless, honestly...
 }
 
-@private // is only allocated when parse() and validate() are working.
+@(private) // is only allocated when parse() and validate() are working.
 g: ^GlobalData 
 
 
-@private // gets a token or an empty string.
+@(private) // gets a token or an empty string.
 peek :: proc(o := 0) -> string {
     if uint(g.curr + o) >= len(g.toks) do return ""
     if g.reps >= 1000 { // <-- solution to the halting problem!
@@ -48,7 +48,7 @@ peek :: proc(o := 0) -> string {
             make_err(.Bad_New_Line,  "The parser is stuck on an out-of-place new line.")
         } else {
             g.err.type = .Parser_Is_Stuck
-            fmt.sbprintf(&g.err.more, "Token: '%s' at index: %d", g.toks[g.curr + o], g.curr + o)
+            os.assert(str.writef(&g.err.more, "Token: '%' at index: %", g.toks[g.curr + o], str.from_int(g.curr + o)))
         }
         return ""
     }
@@ -59,14 +59,14 @@ peek :: proc(o := 0) -> string {
 
 
 // skips by one or more tokens, the parser & validator CANNOT go back, 
-@private // since my solution to the halting problem may not work then.
+@(private) // since my solution to the halting problem may not work then.
 skip :: proc(o := 1) {
     internal.assert(o >= 0)
     g.curr += o
     if o != 0 do g.reps = 0
 }             
 
-@private // returns the current token and skips to the next token.
+@(private) // returns the current token and skips to the next token.
 next :: proc() -> string {
     defer skip()
     return peek()
@@ -98,7 +98,6 @@ parse :: proc(data: string, original_file: string, allocator: mem.Allocator) -> 
     initial_data.root.allocator = allocator
     initial_data.this.allocator = allocator
     initial_data.section.allocator = allocator
-    initial_data.err.more.buf.allocator = allocator
 
     g = &initial_data
     defer g = nil
@@ -349,7 +348,7 @@ parse_float :: proc(allocator: mem.Allocator) -> (result: f64, ok: bool) {
     if peek() == "inf" { skip(); return Infinity, true }
 
     if peek(1) == "." {
-        number := fmt.aprint({ peek(), ".", peek(2) }, "", allocator)
+        number, _ := strings.string_concatenate({ peek(), ".", peek(2) }, allocator)
         cleaned, has_alloc := strings_tools.remove_all(number, "_", allocator)
         defer if has_alloc do _ = strings.string_delete(cleaned, allocator)
         defer _ = strings.string_delete(number, allocator)
@@ -376,29 +375,28 @@ parse_date :: proc(allocator: mem.Allocator) -> (result: dates.Date, ok: bool) {
     if !dates.is_date_lax(peek(0)) do return
     ok = true
 
-    full: string_builder.Builder
-    full.buf.allocator = allocator
-    string_builder.write_string(&full, next())
+    full: str.String(128)
+    os.assert(str.write(&full, next()))
     
     // is date, time or both?
     if dates.is_date_lax(peek()) {
-        _, _ = string_builder.write_rune(&full, ' ')
-        string_builder.write_string(&full, next())
+        os.assert(str.write_rune(&full, ' '))
+        os.assert(str.write(&full, next()))
     }
 
     if peek() == "." {
-        string_builder.write_byte(&full, '.'); skip()
-        string_builder.write_string(&full, next())
+        os.assert(str.write_byte(&full, '.'))
+        skip()
+        os.assert(str.write(&full, next()))
     }
 
     err: dates.DateError
-    result, err = dates.from_string(string_builder.to_string(&full))
+    result, err = dates.from_string(str.str(&full))
     if err != .NONE {
-        make_err(.Bad_Date, "Received error: %v by parsing: '%s' as date\n", err, string_builder.to_string(&full))
+        make_err(.Bad_Date, "Received error: % by parsing: '%' as date\n", str.from_union(err), str.str(&full))
         return
     }
 
-    string_builder.builder_destroy(&full)
     return
 
 }
@@ -446,15 +444,14 @@ parse_table :: proc(allocator: mem.Allocator) -> (result: ^Table, ok: bool) {
 }
 
 @(private="file")
-make_err :: proc(type: ErrorType, more_fmt: string, more_args: ..any) {
+make_err :: proc(type: ErrorType, more_fmt: string, more_args: ..str.String_Type) {
     g.err.type = type
-    g.err.more.buf.allocator = g.alloc
-    string_builder.builder_clear(&g.err.more)
-    fmt.sbprintf(&g.err.more, more_fmt, ..more_args)
+    str.clear(&g.err.more)
+    os.assert(str.writef(&g.err.more, more_fmt, ..more_args))
 }
 
 @(private="file")
-err_if_not :: proc(cond: bool, type: ErrorType, more_fmt: string, more_args: ..any) -> bool {
+err_if_not :: proc(cond: bool, type: ErrorType, more_fmt: string, more_args: ..str.String_Type) -> bool {
     if !cond do make_err(type, more_fmt, ..more_args)
     return !cond
 }

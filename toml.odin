@@ -2,13 +2,12 @@ import "base:internal"
 import "base:intrinsics"
 import "base:mem"
 import "base:container/slice"
+import "base:container/str"
 import "base:container/dyn_array"
 import "base:container/maps"
 import "base:container/strings"
 
-import "core:fmt"
 import "core:os"
-import "core:io/string_builder"
 
 import "dates"
 
@@ -18,7 +17,7 @@ parse_file :: proc(filename: string, allocator: mem.Allocator) -> (section: ^Tab
     blob, read_err := os.read_entire_file_from_path(filename, allocator)
     if read_err != nil {
         err.type = .Bad_File
-        string_builder.write_string(&err.more, filename)
+        os.assert(str.write(&err.more, filename))
         return nil, err
     }
 
@@ -68,9 +67,9 @@ get :: proc($T: typeid, section: ^Table, path: ..string) -> (val: T, ok: bool)
     where intrinsics.type_is_variant_of(Type, T)
 {
     internal.assert(len(path) > 0, "You must specify at least one path str in toml.fetch()!")
-	if section == nil {
-		return val, false
-	}
+    if section == nil {
+        return val, false
+    }
 
     section := section
     for dir in path[:len(path) - 1] {
@@ -91,27 +90,29 @@ get_panic :: proc($T: typeid, section: ^Table, path: ..string) -> T
     internal.assert(len(path) > 0, "You must specify at least one path str in toml.fetch_panic()!")
     section := section
     for dir in path[:len(path) - 1] {
-        fmt.assertf(dir in section, "Missing key: '%s' in table '%v'!", path, section^)
+        // os.assertf(dir in section, "Missing key: '%' in table '%'!", path, section^)
+        os.assert(dir in section, "Missing key: '%' in table '%'!")
         section = section[dir].(^Table)
     }
     last := path[len(path) - 1]
-    fmt.assertf(last in section, "Missing key: '%s' in table '%v'!", last, section^)
+    // os.assertf(last in section, "Missing key: '%' in table '%'!", last, section^)
+    os.assert(last in section, "Missing key: '%' in table '%'!")
     return section[last].(T)
 }
 
-// Currently(2024-06-__), Odin hangs if you simply fmt.print Table
+// Currently(2024-06-__), Odin hangs if you simply os.print Table
 print_table :: proc(section: ^Table, level := 0) {
-    fmt.print("{ ")
+    os.print("{ ")
     i: uint
     for k, v in section {
-        fmt.print(k, "= ") 
+        os.print(k, "= ") 
         print_value(v, level)
-        if i != len(section) - 1 do fmt.print(", ")
-        else do fmt.print(" ")
+        if i != len(section) - 1 do os.print(", ")
+        else do os.print(" ")
         i += 1
     }
-    fmt.print("}")
-    if level == 0 do fmt.println()
+    os.print("}")
+    if level == 0 do os.println()
 }
 
 @(private="file")
@@ -120,17 +121,17 @@ print_value :: proc(v: Type, level := 0) {
     case ^Table:
         print_table(t, level + 1)
     case ^dyn_array.Dyn_Array(Type):
-        fmt.print("[ ")
+        os.print("[ ")
         for e, i in dyn_array.slice(t^) {
             print_value(e, level)
-            if i != t.len - 1 do fmt.print(", ")
-            else do fmt.print(" ")
+            if i != t.len - 1 do os.print(", ")
+            else do os.print(" ")
         }
-        fmt.print("]")
+        os.print("]")
     case string:
-        fmt.printf("%q", v)
+        // os.printf("%q", v)
     case:
-        fmt.print(v)
+        // os.print(v)
     }
 }
 

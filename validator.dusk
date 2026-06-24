@@ -114,7 +114,7 @@ validate :: proc(raw_tokens: [] string, file: string, allocator: mem.Allocator) 
     return err
 }
 
-// '||' operator has short-circuiting in Odin, so I use this to chain functions.
+// '||' operator has short-circuiting in Dusk, so I use this to chain functions.
 validate_stmt :: proc() -> bool {
     return skip_newline()   ||   (validate_array() || validate_table() || validate_assign())   &&    
 

@@ -150,9 +150,9 @@ assign_int :: proc(val: any, i: $T) -> bool {
                 case .Platform:
                     return false
                 case .Little:
-                    return ODIN_ENDIAN != .Little
+                    return DUSK_ENDIAN != .Little
                 case .Big:
-                    return ODIN_ENDIAN != .Big
+                    return DUSK_ENDIAN != .Big
                 }
             }
             return false

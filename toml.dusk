@@ -1,0 +1,168 @@
+import "base:internal"
+import "base:intrinsics"
+import "base:mem"
+import "base:container/slice"
+import "base:container/str"
+import "base:container/dyn_array"
+import "base:container/maps"
+import "base:container/strings"
+
+import "core:os"
+
+import "dates"
+
+
+// Parses the file. You can use print_error(err) for error messages.
+parse_file :: proc(filename: string, allocator: mem.Allocator) -> (section: ^Table, err: Error) {
+    blob, read_err := os.read_entire_file_from_path(filename, allocator)
+    if read_err != nil {
+        err.type = .Bad_File
+        os.assert(str.write(&err.more, filename))
+        return nil, err
+    }
+
+    section, err = parse(string(blob), filename, allocator)
+    _ = slice.delete(blob, allocator)
+    return
+}
+
+// This is made to be used with default, err := #load(filename). original_filename is only used for errors.
+parse_data :: proc(data: []u8, original_filename := "untitled data", allocator: mem.Allocator) -> (section: ^Table, err: Error) {
+    return parse(string(data), original_filename, allocator)
+}
+
+// Frees all of the memory allocated by the parser for a particular type
+// It is recursive, so you can just give it the root Table.
+deep_delete :: proc(type: Type, allocator: mem.Allocator) -> (err: mem.Allocator_Error) {
+    #partial switch value in type {
+    case ^List:
+        if value == nil do break
+        for &item in dyn_array.slice(value^) { 
+            err = deep_delete(item, allocator)
+            if err != .None do return
+        }
+        err = dyn_array.delete(value^)
+        if err == .None do _ = mem.free(value, allocator)
+
+    case ^Table:
+        if value == nil do break
+        for k, &v in value { 
+            err = strings.string_delete(k, allocator)
+            if err != .None do return 
+            err = deep_delete(v, allocator)
+            if err != .None do return 
+        }
+        err = maps.delete(value^)
+        if err == .None do _ = mem.free(value, allocator)
+
+    case string:
+        err = strings.string_delete(value, allocator)
+    }
+    return
+}
+
+// Retrieves and type checks the value at path. The last element of path is the actual key.
+// section may be any Table.
+get :: proc($T: typeid, section: ^Table, path: ..string) -> (val: T, ok: bool)
+    where intrinsics.type_is_variant_of(Type, T)
+{
+    internal.assert(len(path) > 0, "You must specify at least one path str in toml.fetch()!")
+    if section == nil {
+        return val, false
+    }
+
+    section := section
+    for dir in path[:len(path) - 1] {
+        if dir in section {
+            section, ok = section[dir].(^Table)
+            if !ok do return val, false
+        } else do return val, false
+    }
+    last := path[len(path) - 1]
+    if last in section do return section[last].(T)
+    else do return val, false
+}
+
+// Also retrieves and typechecks the value at path, but if something goes wrong, it crashes the program.
+get_panic :: proc($T: typeid, section: ^Table, path: ..string) -> T
+    where intrinsics.type_is_variant_of(Type, T)
+{
+    internal.assert(len(path) > 0, "You must specify at least one path str in toml.fetch_panic()!")
+    section := section
+    for dir in path[:len(path) - 1] {
+        // os.assertf(dir in section, "Missing key: '%' in table '%'!", path, section^)
+        os.assert(dir in section, "Missing key: '%' in table '%'!")
+        section = section[dir].(^Table)
+    }
+    last := path[len(path) - 1]
+    // os.assertf(last in section, "Missing key: '%' in table '%'!", last, section^)
+    os.assert(last in section, "Missing key: '%' in table '%'!")
+    return section[last].(T)
+}
+
+// Currently(2024-06-__), Dusk hangs if you simply os.print Table
+print_table :: proc(section: ^Table, level := 0) {
+    os.print("{ ")
+    i: uint
+    for k, v in section {
+        os.print(k, "= ") 
+        print_value(v, level)
+        if i != len(section) - 1 do os.print(", ")
+        else do os.print(" ")
+        i += 1
+    }
+    os.print("}")
+    if level == 0 do os.println()
+}
+
+@(private="file")
+print_value :: proc(v: Type, level := 0) {
+    #partial switch t in v {
+    case ^Table:
+        print_table(t, level + 1)
+    case ^dyn_array.Dyn_Array(Type):
+        os.print("[ ")
+        for e, i in dyn_array.slice(t^) {
+            print_value(e, level)
+            if i != t.len - 1 do os.print(", ")
+            else do os.print(" ")
+        }
+        os.print("]")
+    case string:
+        // os.printf("%q", v)
+    case:
+        // os.print(v)
+    }
+}
+
+// Here lies the code for LSP:
+get_i64    :: proc(section: ^Table, path: ..string) -> 
+            (val: i64, ok: bool) { return get(i64, section, ..path) }
+get_f64    :: proc(section: ^Table, path: ..string) -> 
+            (val: f64, ok: bool) { return get(f64, section, ..path) }
+get_bool   :: proc(section: ^Table, path: ..string) -> 
+            (val: bool, ok: bool) { return get(bool, section, ..path) }
+get_string :: proc(section: ^Table, path: ..string) -> 
+            (val: string, ok: bool) { return get(string, section, ..path) }
+get_date   :: proc(section: ^Table, path: ..string) -> 
+            (val: dates.Date, ok: bool) { return get(dates.Date, section, ..path) }
+get_list   :: proc(section: ^Table, path: ..string) -> 
+            (val: ^List, ok: bool) { return get(^List, section, ..path) } 
+get_table  :: proc(section: ^Table, path: ..string) -> 
+            (val: ^Table, ok: bool) { return get(^Table, section, ..path) }
+
+get_i64_panic    :: proc(section: ^Table, path: ..string) -> 
+            i64 { return get_panic(i64, section, ..path) }
+get_f64_panic    :: proc(section: ^Table, path: ..string) -> 
+            f64 { return get_panic(f64, section, ..path) }
+get_bool_panic   :: proc(section: ^Table, path: ..string) -> 
+            bool { return get_panic(bool, section, ..path) }
+get_string_panic :: proc(section: ^Table, path: ..string) -> 
+            string { return get_panic(string, section, ..path) }
+get_date_panic   :: proc(section: ^Table, path: ..string) -> 
+            dates.Date { return get_panic(dates.Date, section, ..path) }
+get_list_panic   :: proc(section: ^Table, path: ..string) -> 
+            ^List { return get_panic(^List, section, ..path) } 
+get_table_panic  :: proc(section: ^Table, path: ..string) -> 
+            ^Table { return get_panic(^Table, section, ..path) }
+
